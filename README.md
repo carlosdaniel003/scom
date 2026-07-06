@@ -1,6 +1,6 @@
 # SCOM
 
-Sistema de Controle de Materiais e Componentes para inventário técnico.
+**Sistema de Entrada e Saída de Componentes Eletrônicos** para inventário técnico.
 
 ## Requisitos
 
