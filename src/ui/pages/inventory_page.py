@@ -1,5 +1,5 @@
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -17,6 +17,7 @@ from src.repositories.part_repository import PartRepository
 from src.ui.dialogs.edit_part_dialog import EditPartDialog
 from src.ui.dialogs.movement_dialog import MovementDialog
 from src.ui.dialogs.part_details_dialog import PartDetailsDialog
+from src.utils.paths import resource_path
 
 
 class InventoryPage(QWidget):
@@ -44,6 +45,10 @@ class InventoryPage(QWidget):
         self.search_edit.setObjectName("searchInput")
         self.search_edit.setPlaceholderText(
             "Pesquisar por código, nome, descrição, categoria, modelo ou localização"
+        )
+        self.search_edit.addAction(
+            QIcon(str(resource_path("icons", "search.svg"))),
+            QLineEdit.ActionPosition.LeadingPosition,
         )
         self.search_edit.textChanged.connect(self.refresh)
         toolbar.addWidget(self.search_edit, 1)
@@ -148,8 +153,15 @@ class InventoryPage(QWidget):
 
             view_button = QPushButton("Ver")
             edit_button = QPushButton("Editar")
-            in_button = QPushButton("+ Entrada")
-            out_button = QPushButton("- Saída")
+            in_button = QPushButton("Entrada")
+            out_button = QPushButton("Saída")
+            view_button.setIcon(QIcon(str(resource_path("icons", "view.svg"))))
+            edit_button.setIcon(QIcon(str(resource_path("icons", "edit.svg"))))
+            in_button.setIcon(QIcon(str(resource_path("icons", "arrow-in.svg"))))
+            out_button.setIcon(QIcon(str(resource_path("icons", "arrow-out.svg"))))
+            for action_button in (view_button, edit_button, in_button, out_button):
+                action_button.setIconSize(QSize(16, 16))
+                action_button.setCursor(Qt.CursorShape.PointingHandCursor)
             in_button.setObjectName("successButton")
             out_button.setObjectName("dangerButton")
 
