@@ -1,5 +1,5 @@
 APP_NAME = "SCOM"
-APP_SUBTITLE = "Sistema de Controle de Materiais e Componentes"
+APP_SUBTITLE = "Sistema de Entrada e Saída de Componentes Eletrônicos"
 
 STATUS_AVAILABLE = "Disponível"
 STATUS_LOW = "Estoque baixo"
