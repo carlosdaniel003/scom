@@ -1,5 +1,6 @@
 import sys
 
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from src.database.schema import initialize_database
@@ -18,6 +19,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("SCOM")
     app.setOrganizationName("Área Técnica")
+    app.setWindowIcon(QIcon(str(resource_path("icons", "circuit.svg"))))
     app.setStyleSheet(load_stylesheet())
 
     window = MainWindow()
