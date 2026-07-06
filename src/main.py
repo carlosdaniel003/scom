@@ -9,8 +9,15 @@ from src.utils.paths import resource_path
 
 
 def load_stylesheet() -> str:
-    theme_path = resource_path("styles", "theme.qss")
-    return theme_path.read_text(encoding="utf-8")
+    style_files = (
+        resource_path("styles", "theme.qss"),
+        resource_path("styles", "pages.qss"),
+    )
+    return "\n\n".join(
+        path.read_text(encoding="utf-8")
+        for path in style_files
+        if path.exists()
+    )
 
 
 def main() -> int:
