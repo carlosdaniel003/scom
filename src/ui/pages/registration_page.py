@@ -1,8 +1,8 @@
 import sqlite3
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -25,6 +25,8 @@ from src.models.part import PartInput
 from src.repositories.category_repository import CategoryRepository
 from src.repositories.part_repository import PartRepository
 from src.services.image_service import store_part_image
+from src.ui.widgets.page_header import PageHeader, SectionHeader
+from src.utils.paths import resource_path
 
 
 class PartForm(QWidget):
@@ -36,55 +38,106 @@ class PartForm(QWidget):
 
         root = QGridLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        root.setHorizontalSpacing(24)
+        root.setHorizontalSpacing(18)
         root.setVerticalSpacing(18)
 
         self.image_frame = QFrame()
         self.image_frame.setObjectName("imagePanel")
+        self.image_frame.setMinimumWidth(280)
         image_layout = QVBoxLayout(self.image_frame)
-        image_layout.setContentsMargins(18, 18, 18, 18)
+        image_layout.setContentsMargins(0, 0, 0, 18)
         image_layout.setSpacing(12)
+
+        image_header = SectionHeader(
+            "Foto da peça",
+            "Identificação visual do item cadastrado.",
+            "camera.svg",
+        )
+        image_layout.addWidget(image_header)
+
+        image_content = QVBoxLayout()
+        image_content.setContentsMargins(18, 4, 18, 0)
+        image_content.setSpacing(10)
 
         self.image_preview = QLabel("Nenhuma imagem selecionada")
         self.image_preview.setObjectName("imagePreview")
         self.image_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.image_preview.setMinimumSize(230, 210)
+        self.image_preview.setMinimumSize(240, 220)
 
+        image_hint = QLabel("Formatos aceitos: PNG, JPG, WEBP e BMP")
+        image_hint.setObjectName("fieldHint")
+        image_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        image_actions = QHBoxLayout()
+        image_actions.setSpacing(8)
         select_image_button = QPushButton("Selecionar foto")
+        select_image_button.setObjectName("imageActionButton")
+        select_image_button.setIcon(QIcon(str(resource_path("icons", "camera.svg"))))
+        select_image_button.setIconSize(QSize(17, 17))
+        select_image_button.setCursor(Qt.CursorShape.PointingHandCursor)
         select_image_button.clicked.connect(self.select_image)
-        clear_image_button = QPushButton("Remover foto")
+
+        clear_image_button = QPushButton("Remover")
         clear_image_button.setObjectName("secondaryButton")
+        clear_image_button.setIcon(QIcon(str(resource_path("icons", "trash.svg"))))
+        clear_image_button.setIconSize(QSize(16, 16))
+        clear_image_button.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_image_button.clicked.connect(self.clear_image)
 
-        image_layout.addWidget(self.image_preview)
-        image_layout.addWidget(select_image_button)
-        image_layout.addWidget(clear_image_button)
-        image_layout.addStretch()
+        image_actions.addWidget(select_image_button, 1)
+        image_actions.addWidget(clear_image_button)
+
+        image_content.addWidget(self.image_preview)
+        image_content.addWidget(image_hint)
+        image_content.addLayout(image_actions)
+        image_content.addStretch()
+        image_layout.addLayout(image_content)
 
         form_frame = QFrame()
         form_frame.setObjectName("formPanel")
-        form = QFormLayout(form_frame)
-        form.setContentsMargins(24, 24, 24, 24)
+        form_layout = QVBoxLayout(form_frame)
+        form_layout.setContentsMargins(0, 0, 0, 20)
+        form_layout.setSpacing(0)
+
+        form_header = SectionHeader(
+            "Dados da peça",
+            "Campos marcados com asterisco são obrigatórios.",
+            "component.svg",
+        )
+        form_layout.addWidget(form_header)
+
+        form_container = QWidget()
+        form = QFormLayout(form_container)
+        form.setContentsMargins(22, 16, 22, 0)
         form.setHorizontalSpacing(22)
-        form.setVerticalSpacing(15)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        form.setVerticalSpacing(13)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
 
         self.internal_code_edit = QLineEdit()
         self.internal_code_edit.setPlaceholderText("Ex.: SMT-RES-0001")
+        self.internal_code_edit.addAction(
+            QIcon(str(resource_path("icons", "tag.svg"))),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
 
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("Nome utilizado pela área técnica")
+        self.name_edit.addAction(
+            QIcon(str(resource_path("icons", "component.svg"))),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
 
         self.description_edit = QTextEdit()
         self.description_edit.setPlaceholderText("Descrição técnica da peça")
-        self.description_edit.setFixedHeight(80)
+        self.description_edit.setFixedHeight(76)
 
         self.category_combo = QComboBox()
         self.category_combo.currentIndexChanged.connect(self.category_changed)
 
         self.component_value_edit = QLineEdit()
         self.component_value_edit.setPlaceholderText("Informe o valor técnico")
-        self.component_value_label = QLabel("Valor do componente")
+        self.component_value_label = self._field_label("Valor do componente")
 
         self.component_unit_edit = QLineEdit()
         self.component_unit_edit.setPlaceholderText("Unidade")
@@ -100,39 +153,86 @@ class PartForm(QWidget):
 
         self.model_combo = QComboBox()
         self.model_combo.setEditable(True)
-        self.model_combo.lineEdit().setPlaceholderText("Digite ou selecione um modelo já cadastrado")
+        self.model_combo.lineEdit().setPlaceholderText(
+            "Digite ou selecione um modelo já cadastrado"
+        )
 
         self.quantity_spin = QSpinBox()
         self.quantity_spin.setRange(0, 1_000_000)
+        self.quantity_spin.setSuffix(" un.")
 
         self.minimum_spin = QSpinBox()
         self.minimum_spin.setRange(0, 1_000_000)
         self.minimum_spin.setValue(1)
+        self.minimum_spin.setSuffix(" un.")
 
         self.location_edit = QLineEdit()
         self.location_edit.setPlaceholderText("Ex.: Armário A / Gaveta 03")
+        self.location_edit.addAction(
+            QIcon(str(resource_path("icons", "location.svg"))),
+            QLineEdit.ActionPosition.LeadingPosition,
+        )
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText("Observações adicionais, opcional")
-        self.notes_edit.setFixedHeight(90)
+        self.notes_edit.setFixedHeight(84)
 
-        form.addRow("Código interno *", self.internal_code_edit)
-        form.addRow("Nome da peça *", self.name_edit)
-        form.addRow("Descrição", self.description_edit)
-        form.addRow("Categoria *", self.category_combo)
+        form.addRow(self._form_section("Identificação", "tag.svg"))
+        form.addRow(self._field_label("Código interno *"), self.internal_code_edit)
+        form.addRow(self._field_label("Nome da peça *"), self.name_edit)
+        form.addRow(self._field_label("Descrição"), self.description_edit)
+
+        form.addRow(self._form_section("Classificação técnica", "component.svg"))
+        form.addRow(self._field_label("Categoria *"), self.category_combo)
         form.addRow(self.component_value_label, self.component_row)
-        form.addRow("Modelo", self.model_combo)
+        form.addRow(self._field_label("Modelo"), self.model_combo)
+
+        form.addRow(self._form_section("Estoque e localização", "layers.svg"))
         if show_initial_quantity:
-            form.addRow("Quantidade física", self.quantity_spin)
-        form.addRow("Quantidade mínima", self.minimum_spin)
-        form.addRow("Localização física *", self.location_edit)
-        form.addRow("Observação", self.notes_edit)
+            form.addRow(self._field_label("Quantidade física"), self.quantity_spin)
+        form.addRow(self._field_label("Quantidade mínima"), self.minimum_spin)
+        form.addRow(self._field_label("Localização física *"), self.location_edit)
+
+        form.addRow(self._form_section("Informações complementares", "notes.svg"))
+        form.addRow(self._field_label("Observação"), self.notes_edit)
+
+        form_layout.addWidget(form_container)
 
         root.addWidget(self.image_frame, 0, 0)
         root.addWidget(form_frame, 0, 1)
         root.setColumnStretch(1, 1)
+        root.setColumnMinimumWidth(0, 280)
 
         self.load_categories()
+
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
+        return label
+
+    @staticmethod
+    def _form_section(title: str, icon_name: str) -> QWidget:
+        section = QWidget()
+        section.setObjectName("formSection")
+        layout = QHBoxLayout(section)
+        layout.setContentsMargins(0, 10, 0, 5)
+        layout.setSpacing(8)
+
+        icon = QLabel()
+        icon.setPixmap(
+            QIcon(str(resource_path("icons", icon_name))).pixmap(QSize(16, 16))
+        )
+        title_label = QLabel(title.upper())
+        title_label.setObjectName("formSectionTitle")
+        line = QFrame()
+        line.setObjectName("formSectionLine")
+        line.setFrameShape(QFrame.Shape.HLine)
+
+        layout.addWidget(icon)
+        layout.addWidget(title_label)
+        layout.addWidget(line, 1)
+        return section
 
     def load_categories(self) -> None:
         self.categories = CategoryRepository.list_all()
@@ -176,8 +276,8 @@ class PartForm(QWidget):
             return
         self.image_preview.setPixmap(
             pixmap.scaled(
-                220,
-                200,
+                232,
+                210,
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
@@ -264,42 +364,63 @@ class RegistrationPage(QWidget):
         super().__init__()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 32)
-        root.setSpacing(20)
+        root.setContentsMargins(30, 26, 30, 30)
+        root.setSpacing(18)
 
-        title = QLabel("Cadastro de peças")
-        title.setObjectName("pageTitle")
-        subtitle = QLabel("Cadastre componentes, materiais e ferramentas da área técnica.")
-        subtitle.setObjectName("pageSubtitle")
-        root.addWidget(title)
-        root.addWidget(subtitle)
+        header = PageHeader(
+            "Cadastrar peça",
+            "Registre componentes, materiais e ferramentas da área técnica.",
+            "add-box.svg",
+            "NOVO REGISTRO",
+        )
+        root.addWidget(header)
 
         scroll = QScrollArea()
+        scroll.setObjectName("pageScroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
         container = QWidget()
         container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 6, 0)
-        container_layout.setSpacing(18)
+        container_layout.setContentsMargins(0, 0, 7, 0)
+        container_layout.setSpacing(14)
 
         self.form = PartForm(show_initial_quantity=True)
         container_layout.addWidget(self.form)
 
-        actions = QHBoxLayout()
+        action_bar = QFrame()
+        action_bar.setObjectName("actionBar")
+        actions = QHBoxLayout(action_bar)
+        actions.setContentsMargins(16, 12, 16, 12)
+        actions.setSpacing(10)
+
+        required_hint = QLabel("* Preenchimento obrigatório")
+        required_hint.setObjectName("requiredHint")
+        actions.addWidget(required_hint)
         actions.addStretch()
+
         clear_button = QPushButton("Limpar formulário")
         clear_button.setObjectName("secondaryButton")
+        clear_button.setIcon(QIcon(str(resource_path("icons", "clear.svg"))))
+        clear_button.setIconSize(QSize(17, 17))
+        clear_button.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_button.clicked.connect(self.form.clear)
+
         save_button = QPushButton("Cadastrar peça")
         save_button.setObjectName("primaryButton")
+        save_button.setIcon(QIcon(str(resource_path("icons", "save.svg"))))
+        save_button.setIconSize(QSize(17, 17))
+        save_button.setCursor(Qt.CursorShape.PointingHandCursor)
         save_button.clicked.connect(self.save)
+
         actions.addWidget(clear_button)
         actions.addWidget(save_button)
-        container_layout.addLayout(actions)
+        container_layout.addWidget(action_bar)
         container_layout.addStretch()
 
         scroll.setWidget(container)
-        root.addWidget(scroll)
+        root.addWidget(scroll, 1)
 
     def save(self) -> None:
         try:
