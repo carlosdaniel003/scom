@@ -1,0 +1,222 @@
+/* Componentes compartilhados das páginas internas */
+#pageHeaderIconBadge {
+    background: #0f2f46;
+    border: 1px solid #245f82;
+    border-radius: 12px;
+}
+
+#pageChip {
+    background: #0c2638;
+    border: 1px solid #23506d;
+    border-radius: 9px;
+    color: #75caff;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 7px 11px;
+}
+
+QFrame#toolbarPanel,
+QFrame#dataPanel,
+QFrame#actionBar {
+    background: #0a1a29;
+    border: 1px solid #173a54;
+    border-radius: 12px;
+}
+
+QFrame#toolbarPanel {
+    background: #0b1d2c;
+}
+
+#toolbarLabel {
+    color: #6689a3;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 0 3px 0 8px;
+}
+
+#resultBadge {
+    background: #102d43;
+    border: 1px solid #255b7a;
+    border-radius: 8px;
+    color: #7ecfff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 6px 10px;
+}
+
+#panelSectionHeader {
+    background: #0c2031;
+    border: none;
+    border-bottom: 1px solid #183e59;
+    border-top-left-radius: 11px;
+    border-top-right-radius: 11px;
+}
+
+#panelSectionIconBadge {
+    background: #10334a;
+    border: 1px solid #245e80;
+    border-radius: 9px;
+}
+
+#panelSectionTitle {
+    color: #eaf5ff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+#panelSectionSubtitle {
+    color: #7696ae;
+    font-size: 10px;
+}
+
+QTableWidget#inventoryTable,
+QTableWidget#movementsTable {
+    border: none;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+#tableActions {
+    background: transparent;
+}
+
+#tableActionButton {
+    background: #102b40;
+    border-color: #285876;
+    padding: 7px 10px;
+}
+
+#tableActionButton:hover {
+    background: #174462;
+    border-color: #3b87b0;
+}
+
+/* Indicadores compactos de movimentação */
+QFrame#compactMetric,
+QFrame#compactMetricSuccess,
+QFrame#compactMetricDanger {
+    background: #0c1d2c;
+    border: 1px solid #1a3d57;
+    border-radius: 12px;
+}
+
+QFrame#compactMetric:hover,
+QFrame#compactMetricSuccess:hover,
+QFrame#compactMetricDanger:hover {
+    background: #0f2436;
+}
+
+QFrame#compactMetricSuccess {
+    border-color: #276150;
+}
+
+QFrame#compactMetricDanger {
+    border-color: #713845;
+}
+
+#compactMetricIconBadge {
+    background: #102f45;
+    border: 1px solid #245f80;
+    border-radius: 10px;
+}
+
+#compactMetricSuccess #compactMetricIconBadge {
+    background: #12342c;
+    border-color: #286854;
+}
+
+#compactMetricDanger #compactMetricIconBadge {
+    background: #34202a;
+    border-color: #713947;
+}
+
+#compactMetricValue {
+    color: #65c5ff;
+    font-size: 23px;
+    font-weight: 800;
+}
+
+#compactMetricSuccess #compactMetricValue {
+    color: #6ee7b7;
+}
+
+#compactMetricDanger #compactMetricValue {
+    color: #ff8093;
+}
+
+#compactMetricTitle {
+    color: #89a5ba;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+/* Cadastro de peças */
+QScrollArea#pageScroll {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea#pageScroll > QWidget > QWidget {
+    background: transparent;
+}
+
+#fieldLabel {
+    color: #a8bfd0;
+    font-size: 11px;
+    font-weight: 650;
+    min-width: 145px;
+}
+
+#fieldHint {
+    color: #6889a2;
+    font-size: 10px;
+}
+
+#formSection {
+    background: transparent;
+}
+
+#formSectionTitle {
+    color: #69c5fa;
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 1px;
+}
+
+#formSectionLine {
+    background: #183950;
+    border: none;
+    max-height: 1px;
+}
+
+#imageActionButton {
+    background: #13466a;
+    border-color: #2b79a5;
+    color: #eaf7ff;
+}
+
+#imageActionButton:hover {
+    background: #185b87;
+    border-color: #42a1d0;
+}
+
+#actionBar {
+    background: #0c2030;
+}
+
+#requiredHint {
+    color: #7f9db4;
+    font-size: 10px;
+}
+
+QFrame#imagePanel,
+QFrame#formPanel {
+    background: #0a1a29;
+}
+
+QFrame#imagePanel #panelSectionHeader,
+QFrame#formPanel #panelSectionHeader {
+    border-bottom-color: #1b425d;
+}
