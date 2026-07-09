@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -103,6 +104,8 @@ class InventoryPage(QWidget):
         section_header.add_trailing_widget(self.result_label)
         data_layout.addWidget(section_header)
 
+        self.results_stack = QStackedWidget()
+
         self.table = QTableWidget(0, 9)
         self.table.setObjectName("inventoryTable")
         self.table.setHorizontalHeaderLabels(
@@ -132,7 +135,38 @@ class InventoryPage(QWidget):
         header_view.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         header_view.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(8, 350)
-        data_layout.addWidget(self.table, 1)
+
+        self.empty_state = QWidget()
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(24, 40, 24, 40)
+        empty_layout.setSpacing(10)
+        empty_layout.addStretch()
+
+        empty_icon = QLabel()
+        empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_icon.setPixmap(
+            QIcon(str(resource_path("icons", "search.svg"))).pixmap(QSize(42, 42))
+        )
+
+        empty_title = QLabel("Nada encontrado")
+        empty_title.setObjectName("dialogTitle")
+        empty_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        empty_description = QLabel(
+            "Nenhuma peça corresponde à pesquisa ou aos filtros selecionados."
+        )
+        empty_description.setObjectName("mutedText")
+        empty_description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_description.setWordWrap(True)
+
+        empty_layout.addWidget(empty_icon)
+        empty_layout.addWidget(empty_title)
+        empty_layout.addWidget(empty_description)
+        empty_layout.addStretch()
+
+        self.results_stack.addWidget(self.table)
+        self.results_stack.addWidget(self.empty_state)
+        data_layout.addWidget(self.results_stack, 1)
 
         root.addWidget(data_panel, 1)
         self.refresh()
@@ -148,21 +182,18 @@ class InventoryPage(QWidget):
     def refresh(self) -> None:
         parts = PartRepository.search(self.search_edit.text(), self.status_filter)
         self.result_label.setText(f"{len(parts)} RESULTADO(S)")
+
         self.table.clearSpans()
+        self.table.setRowCount(0)
+        self.table.clearContents()
 
         if not parts:
-            self.table.setRowCount(1)
-            empty_item = QTableWidgetItem(
-                "Nenhuma peça encontrada. Ajuste a pesquisa ou os filtros para continuar."
-            )
-            empty_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty_item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.table.setItem(0, 0, empty_item)
-            self.table.setSpan(0, 0, 1, 9)
-            self.table.setRowHeight(0, 110)
+            self.results_stack.setCurrentWidget(self.empty_state)
             return
 
+        self.results_stack.setCurrentWidget(self.table)
         self.table.setRowCount(len(parts))
+
         status_icons = {
             "Disponível": "check.svg",
             "Estoque baixo": "warning.svg",
