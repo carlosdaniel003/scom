@@ -30,6 +30,13 @@ from src.utils.paths import resource_path
 
 
 class PartForm(QWidget):
+    UNIT_OPTIONS = {
+        "Resistor": ("mΩ", "Ω", "kΩ", "MΩ"),
+        "Capacitor": ("pF", "nF", "µF", "mF", "F"),
+        "Relé": ("mV", "V"),
+        "Fusível": ("mA", "A"),
+    }
+
     def __init__(self, show_initial_quantity: bool = True) -> None:
         super().__init__()
         self.show_initial_quantity = show_initial_quantity
@@ -137,13 +144,15 @@ class PartForm(QWidget):
 
         self.component_value_edit = QLineEdit()
         self.component_value_edit.setPlaceholderText("Ex.: 100")
-        self.component_value_edit.setToolTip("Informe somente o valor numérico do componente")
+        self.component_value_edit.setToolTip("Informe somente o valor do componente")
         self.component_value_label = self._field_label("Especificação técnica")
 
-        self.component_unit_edit = QLineEdit()
-        self.component_unit_edit.setPlaceholderText("Ex.: µF")
-        self.component_unit_edit.setToolTip("Informe a unidade de medida, como µF, kΩ, V ou A")
-        self.component_unit_edit.setMaximumWidth(160)
+        self.component_unit_combo = QComboBox()
+        self.component_unit_combo.setPlaceholderText("Selecione")
+        self.component_unit_combo.setToolTip(
+            "Selecione a unidade de medida correspondente à categoria"
+        )
+        self.component_unit_combo.setMinimumWidth(160)
 
         value_column = QWidget()
         value_layout = QVBoxLayout(value_column)
@@ -154,21 +163,21 @@ class PartForm(QWidget):
         value_layout.addWidget(value_caption)
         value_layout.addWidget(self.component_value_edit)
 
-        unit_column = QWidget()
-        unit_layout = QVBoxLayout(unit_column)
+        self.unit_column = QWidget()
+        unit_layout = QVBoxLayout(self.unit_column)
         unit_layout.setContentsMargins(0, 0, 0, 0)
         unit_layout.setSpacing(5)
         unit_caption = QLabel("Unidade de medida")
         unit_caption.setObjectName("fieldHint")
         unit_layout.addWidget(unit_caption)
-        unit_layout.addWidget(self.component_unit_edit)
+        unit_layout.addWidget(self.component_unit_combo)
 
         component_row = QWidget()
         component_layout = QHBoxLayout(component_row)
         component_layout.setContentsMargins(0, 0, 0, 0)
         component_layout.setSpacing(10)
         component_layout.addWidget(value_column, 1)
-        component_layout.addWidget(unit_column)
+        component_layout.addWidget(self.unit_column)
         self.component_row = component_row
 
         self.model_combo = QComboBox()
@@ -265,13 +274,27 @@ class PartForm(QWidget):
         index = self.category_combo.currentIndex()
         if index < 0 or index >= len(self.categories):
             return
+
         category = self.categories[index]
+        category_name = category["name"]
         required = bool(category["requires_component_value"])
         label_text = category["value_label"] or "Especificação técnica"
+        unit_options = self.UNIT_OPTIONS.get(category_name, ())
+
         self.component_value_label.setText(f"{label_text}{' *' if required else ''}")
         self.component_value_label.setVisible(required)
         self.component_row.setVisible(required)
-        self.component_unit_edit.setText(category["default_unit"] or "")
+
+        self.component_unit_combo.clear()
+        self.component_unit_combo.addItems(unit_options)
+        self.unit_column.setVisible(bool(unit_options))
+
+        default_unit = category["default_unit"] or ""
+        default_index = self.component_unit_combo.findText(default_unit)
+        if default_index >= 0:
+            self.component_unit_combo.setCurrentIndex(default_index)
+        elif unit_options:
+            self.component_unit_combo.setCurrentIndex(0)
 
         current_text = self.model_combo.currentText()
         self.model_combo.clear()
@@ -318,6 +341,7 @@ class PartForm(QWidget):
         name = self.name_edit.text().strip()
         location = self.location_edit.text().strip()
         component_value = self.component_value_edit.text().strip()
+        component_unit = self.component_unit_combo.currentText().strip()
 
         if not internal_code:
             raise ValueError("Informe o código interno.")
@@ -327,6 +351,8 @@ class PartForm(QWidget):
             raise ValueError("Informe a localização física.")
         if category["requires_component_value"] and not component_value:
             raise ValueError(f"Informe: {category['value_label']}.")
+        if self.UNIT_OPTIONS.get(category["name"]) and not component_unit:
+            raise ValueError("Selecione a unidade de medida.")
 
         return PartInput(
             internal_code=internal_code,
@@ -334,7 +360,7 @@ class PartForm(QWidget):
             description=self.description_edit.toPlainText().strip(),
             category_id=int(category["id"]),
             component_value=component_value,
-            component_unit=self.component_unit_edit.text().strip(),
+            component_unit=component_unit,
             model_name=self.model_combo.currentText().strip(),
             current_quantity=self.quantity_spin.value() if self.show_initial_quantity else 0,
             minimum_quantity=self.minimum_spin.value(),
@@ -366,7 +392,15 @@ class PartForm(QWidget):
         if category_index >= 0:
             self.category_combo.setCurrentIndex(category_index)
         self.component_value_edit.setText(part.get("component_value") or "")
-        self.component_unit_edit.setText(part.get("component_unit") or "")
+
+        stored_unit = part.get("component_unit") or ""
+        if stored_unit:
+            unit_index = self.component_unit_combo.findText(stored_unit)
+            if unit_index < 0:
+                self.component_unit_combo.addItem(stored_unit)
+                unit_index = self.component_unit_combo.findText(stored_unit)
+            self.component_unit_combo.setCurrentIndex(unit_index)
+
         self.model_combo.setCurrentText(part.get("model_name") or "")
         self.minimum_spin.setValue(int(part.get("minimum_quantity") or 0))
         self.location_edit.setText(part.get("physical_location") or "")
