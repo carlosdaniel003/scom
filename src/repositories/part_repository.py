@@ -24,9 +24,33 @@ class PartRepository:
         )
         return int(cursor.lastrowid)
 
+    @staticmethod
+    def _internal_code_exists(
+        connection,
+        internal_code: str,
+        exclude_part_id: int | None = None,
+    ) -> bool:
+        normalized_code = internal_code.strip()
+        if not normalized_code:
+            return False
+
+        query = "SELECT 1 FROM parts WHERE internal_code = ? COLLATE NOCASE"
+        params: list[Any] = [normalized_code]
+        if exclude_part_id is not None:
+            query += " AND id <> ?"
+            params.append(exclude_part_id)
+        query += " LIMIT 1"
+
+        return connection.execute(query, tuple(params)).fetchone() is not None
+
     @classmethod
     def create(cls, part: PartInput) -> int:
         with database_connection() as connection:
+            if cls._internal_code_exists(connection, part.internal_code):
+                raise ValueError(
+                    "Já existe uma peça cadastrada com esse código interno."
+                )
+
             model_id = cls._get_or_create_model(
                 connection, part.model_name, part.category_id
             )
@@ -76,6 +100,15 @@ class PartRepository:
     @staticmethod
     def update(part_id: int, part: PartInput) -> None:
         with database_connection() as connection:
+            if PartRepository._internal_code_exists(
+                connection,
+                part.internal_code,
+                exclude_part_id=part_id,
+            ):
+                raise ValueError(
+                    "Já existe uma peça cadastrada com esse código interno."
+                )
+
             model_id = PartRepository._get_or_create_model(
                 connection, part.model_name, part.category_id
             )
@@ -132,20 +165,38 @@ class PartRepository:
 
     @staticmethod
     def search(search_text: str = "", status_filter: str = "all") -> list[dict]:
-        terms = f"%{search_text.strip()}%"
-        conditions = [
-            """
-            (
-                p.internal_code LIKE ? OR p.name LIKE ? OR
-                COALESCE(p.description, '') LIKE ? OR c.name LIKE ? OR
-                COALESCE(m.name, '') LIKE ? OR p.physical_location LIKE ?
+        search_terms = [term for term in search_text.strip().split() if term]
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        for term in search_terms:
+            pattern = f"%{term}%"
+            conditions.append(
+                """
+                (
+                    p.internal_code LIKE ? OR
+                    p.name LIKE ? OR
+                    COALESCE(p.description, '') LIKE ? OR
+                    c.name LIKE ? OR
+                    COALESCE(m.name, '') LIKE ? OR
+                    p.physical_location LIKE ? OR
+                    COALESCE(p.component_value, '') LIKE ? OR
+                    COALESCE(p.component_unit, '') LIKE ? OR
+                    (COALESCE(p.component_value, '') || ' ' ||
+                     COALESCE(p.component_unit, '')) LIKE ?
+                )
+                """
             )
-            """
-        ]
-        params: list[Any] = [terms] * 6
+            params.extend([pattern] * 9)
+
+        if not conditions:
+            conditions.append("1 = 1")
 
         if status_filter == "low":
-            conditions.append("p.current_quantity > 0 AND p.current_quantity <= p.minimum_quantity")
+            conditions.append(
+                "p.current_quantity > 0 AND "
+                "p.current_quantity <= p.minimum_quantity"
+            )
         elif status_filter == "empty":
             conditions.append("p.current_quantity = 0")
         elif status_filter == "available":
