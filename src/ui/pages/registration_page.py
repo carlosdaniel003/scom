@@ -1,10 +1,11 @@
 import sqlite3
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, QStringListModel, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
+    QCompleter,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -31,10 +32,27 @@ from src.utils.paths import resource_path
 
 class PartForm(QWidget):
     UNIT_OPTIONS = {
-        "Resistor": ("mΩ", "Ω", "kΩ", "MΩ"),
-        "Capacitor": ("pF", "nF", "µF", "mF", "F"),
-        "Relé": ("mV", "V"),
-        "Fusível": ("mA", "A"),
+        "Resistor": (
+            ("mΩ - Miliohm", "mΩ"),
+            ("Ω - Ohm", "Ω"),
+            ("kΩ - Quilo-ohm", "kΩ"),
+            ("MΩ - Megaohm", "MΩ"),
+        ),
+        "Capacitor": (
+            ("pF - Picofarad", "pF"),
+            ("nF - Nanofarad", "nF"),
+            ("µF - Microfarad", "µF"),
+            ("mF - Milifarad", "mF"),
+            ("F - Farad", "F"),
+        ),
+        "Relé": (
+            ("mV - Milivolt", "mV"),
+            ("V - Volt", "V"),
+        ),
+        "Fusível": (
+            ("mA - Miliampere", "mA"),
+            ("A - Ampere", "A"),
+        ),
     }
 
     def __init__(self, show_initial_quantity: bool = True) -> None:
@@ -148,20 +166,11 @@ class PartForm(QWidget):
         self.component_value_label = self._field_label("Especificação técnica")
 
         self.component_unit_combo = QComboBox()
-        self.component_unit_combo.setPlaceholderText("Selecione")
+        self.component_unit_combo.setPlaceholderText("Selecione a unidade")
         self.component_unit_combo.setToolTip(
             "Selecione a unidade de medida correspondente à categoria"
         )
-        self.component_unit_combo.setMinimumWidth(160)
-
-        value_column = QWidget()
-        value_layout = QVBoxLayout(value_column)
-        value_layout.setContentsMargins(0, 0, 0, 0)
-        value_layout.setSpacing(5)
-        value_caption = QLabel("Valor")
-        value_caption.setObjectName("fieldHint")
-        value_layout.addWidget(value_caption)
-        value_layout.addWidget(self.component_value_edit)
+        self.component_unit_combo.setMinimumWidth(235)
 
         self.unit_column = QWidget()
         unit_layout = QVBoxLayout(self.unit_column)
@@ -172,19 +181,34 @@ class PartForm(QWidget):
         unit_layout.addWidget(unit_caption)
         unit_layout.addWidget(self.component_unit_combo)
 
+        value_column = QWidget()
+        value_layout = QVBoxLayout(value_column)
+        value_layout.setContentsMargins(0, 0, 0, 0)
+        value_layout.setSpacing(5)
+        value_caption = QLabel("Valor")
+        value_caption.setObjectName("fieldHint")
+        value_layout.addWidget(value_caption)
+        value_layout.addWidget(self.component_value_edit)
+
         component_row = QWidget()
         component_layout = QHBoxLayout(component_row)
         component_layout.setContentsMargins(0, 0, 0, 0)
         component_layout.setSpacing(10)
-        component_layout.addWidget(value_column, 1)
         component_layout.addWidget(self.unit_column)
+        component_layout.addWidget(value_column, 1)
         self.component_row = component_row
 
         self.model_combo = QComboBox()
         self.model_combo.setEditable(True)
+        self.model_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.model_combo.setDuplicatesEnabled(False)
         self.model_combo.lineEdit().setPlaceholderText(
             "Digite ou selecione um modelo já cadastrado"
         )
+        self.model_completer = QCompleter(self.model_combo.model(), self.model_combo)
+        self._configure_completer(self.model_completer)
+        self.model_combo.setCompleter(self.model_completer)
+        self.model_combo.lineEdit().textEdited.connect(self._show_model_completions)
 
         self.quantity_spin = QSpinBox()
         self.quantity_spin.setRange(0, 1_000_000)
@@ -201,6 +225,14 @@ class PartForm(QWidget):
             QIcon(str(resource_path("icons", "location.svg"))),
             QLineEdit.ActionPosition.LeadingPosition,
         )
+        self.location_completion_model = QStringListModel(self)
+        self.location_completer = QCompleter(
+            self.location_completion_model,
+            self.location_edit,
+        )
+        self._configure_completer(self.location_completer)
+        self.location_edit.setCompleter(self.location_completer)
+        self.location_edit.textEdited.connect(self._show_location_completions)
 
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText("Observações adicionais, opcional")
@@ -233,6 +265,7 @@ class PartForm(QWidget):
         root.setColumnMinimumWidth(0, 280)
 
         self.load_categories()
+        self.refresh_suggestions()
 
     @staticmethod
     def _field_label(text: str) -> QLabel:
@@ -263,6 +296,35 @@ class PartForm(QWidget):
         layout.addWidget(line, 1)
         return section
 
+    @staticmethod
+    def _configure_completer(completer: QCompleter) -> None:
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setMaxVisibleItems(10)
+
+    def _show_model_completions(self, text: str) -> None:
+        if text.strip() and self.model_combo.count() > 0:
+            self.model_completer.complete()
+
+    def _show_location_completions(self, text: str) -> None:
+        if text.strip() and self.location_completion_model.rowCount() > 0:
+            self.location_completer.complete()
+
+    def refresh_suggestions(self) -> None:
+        self.location_completion_model.setStringList(PartRepository.list_locations())
+
+        index = self.category_combo.currentIndex()
+        if 0 <= index < len(self.categories):
+            current_model = self.model_combo.currentText()
+            category_id = int(self.categories[index]["id"])
+            self._load_model_options(category_id, current_model)
+
+    def _load_model_options(self, category_id: int, current_text: str = "") -> None:
+        self.model_combo.clear()
+        self.model_combo.addItems(PartRepository.list_models(category_id))
+        self.model_combo.setCurrentText(current_text)
+
     def load_categories(self) -> None:
         self.categories = CategoryRepository.list_all()
         self.category_combo.clear()
@@ -286,20 +348,19 @@ class PartForm(QWidget):
         self.component_row.setVisible(required)
 
         self.component_unit_combo.clear()
-        self.component_unit_combo.addItems(unit_options)
+        for display_name, unit_code in unit_options:
+            self.component_unit_combo.addItem(display_name, unit_code)
         self.unit_column.setVisible(bool(unit_options))
 
         default_unit = category["default_unit"] or ""
-        default_index = self.component_unit_combo.findText(default_unit)
+        default_index = self.component_unit_combo.findData(default_unit)
         if default_index >= 0:
             self.component_unit_combo.setCurrentIndex(default_index)
         elif unit_options:
             self.component_unit_combo.setCurrentIndex(0)
 
-        current_text = self.model_combo.currentText()
-        self.model_combo.clear()
-        self.model_combo.addItems(PartRepository.list_models(int(category["id"])))
-        self.model_combo.setCurrentText(current_text)
+        current_model = self.model_combo.currentText()
+        self._load_model_options(int(category["id"]), current_model)
 
     def select_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -341,7 +402,7 @@ class PartForm(QWidget):
         name = self.name_edit.text().strip()
         location = self.location_edit.text().strip()
         component_value = self.component_value_edit.text().strip()
-        component_unit = self.component_unit_combo.currentText().strip()
+        component_unit = self.component_unit_combo.currentData() or ""
 
         if not internal_code:
             raise ValueError("Informe o código interno.")
@@ -360,7 +421,7 @@ class PartForm(QWidget):
             description=self.description_edit.toPlainText().strip(),
             category_id=int(category["id"]),
             component_value=component_value,
-            component_unit=component_unit,
+            component_unit=str(component_unit),
             model_name=self.model_combo.currentText().strip(),
             current_quantity=self.quantity_spin.value() if self.show_initial_quantity else 0,
             minimum_quantity=self.minimum_spin.value(),
@@ -381,6 +442,7 @@ class PartForm(QWidget):
         self.location_edit.clear()
         self.notes_edit.clear()
         self.clear_image()
+        self.category_changed()
         self.internal_code_edit.setFocus()
 
     def load_part(self, part: dict) -> None:
@@ -395,10 +457,13 @@ class PartForm(QWidget):
 
         stored_unit = part.get("component_unit") or ""
         if stored_unit:
-            unit_index = self.component_unit_combo.findText(stored_unit)
+            unit_index = self.component_unit_combo.findData(stored_unit)
             if unit_index < 0:
-                self.component_unit_combo.addItem(stored_unit)
-                unit_index = self.component_unit_combo.findText(stored_unit)
+                self.component_unit_combo.addItem(
+                    f"{stored_unit} - Unidade cadastrada",
+                    stored_unit,
+                )
+                unit_index = self.component_unit_combo.findData(stored_unit)
             self.component_unit_combo.setCurrentIndex(unit_index)
 
         self.model_combo.setCurrentText(part.get("model_name") or "")
@@ -491,4 +556,5 @@ class RegistrationPage(QWidget):
 
         QMessageBox.information(self, "Peça cadastrada", "A peça foi cadastrada com sucesso.")
         self.form.clear()
+        self.form.refresh_suggestions()
         self.part_saved.emit()
