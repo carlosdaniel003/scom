@@ -2,6 +2,7 @@ from typing import Any
 
 from src.database.connection import database_connection
 from src.models.part import PartInput
+from src.services.backup_service import BackupError, BackupService
 
 
 class PartRepository:
@@ -45,6 +46,8 @@ class PartRepository:
 
     @classmethod
     def create(cls, part: PartInput) -> int:
+        has_initial_movement = part.current_quantity > 0
+
         with database_connection() as connection:
             if cls._internal_code_exists(connection, part.internal_code):
                 raise ValueError(
@@ -79,7 +82,7 @@ class PartRepository:
             )
             part_id = int(cursor.lastrowid)
 
-            if part.current_quantity > 0:
+            if has_initial_movement:
                 connection.execute(
                     """
                     INSERT INTO stock_movements (
@@ -95,7 +98,16 @@ class PartRepository:
                         "Cadastro inicial",
                     ),
                 )
-            return part_id
+
+        if has_initial_movement:
+            try:
+                BackupService.sync_movement_logs()
+            except BackupError:
+                # O histórico permanece preservado no SQLite e será sincronizado
+                # novamente quando os logs forem exportados.
+                pass
+
+        return part_id
 
     @staticmethod
     def update(part_id: int, part: PartInput) -> None:
