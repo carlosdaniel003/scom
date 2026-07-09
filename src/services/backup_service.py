@@ -4,6 +4,7 @@ import zipfile
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from src.database.connection import database_connection
 from src.utils.paths import DATA_DIR, DATABASE_PATH, ensure_directories
@@ -18,6 +19,24 @@ class BackupService:
     MAX_RECORDS_PER_FILE = 10_000
     LOG_DIRECTORY = DATA_DIR / "movement_logs"
     LOG_PREFIX = "movimentacoes_"
+
+    INVENTORY_HEADERS = (
+        "Código interno",
+        "Peça",
+        "Descrição",
+        "Categoria",
+        "Valor técnico",
+        "Unidade",
+        "Modelo",
+        "Quantidade física",
+        "Quantidade mínima",
+        "Localização física",
+        "Status",
+        "Observações",
+        "Criado em",
+        "Atualizado em",
+    )
+
     LOG_HEADERS = (
         "ID",
         "Data e hora",
@@ -68,6 +87,126 @@ class BackupService:
         except (OSError, sqlite3.Error) as error:
             temporary_path.unlink(missing_ok=True)
             raise BackupError(f"Não foi possível criar o backup: {error}") from error
+
+        return destination_path
+
+    @classmethod
+    def export_inventory_backup(cls, destination: str | Path) -> Path:
+        destination_path = Path(destination)
+        temporary_archive = destination_path.with_suffix(
+            f"{destination_path.suffix}.temporary"
+        )
+
+        try:
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            temporary_archive.unlink(missing_ok=True)
+
+            with TemporaryDirectory(prefix="scom_backup_") as temporary_directory:
+                temporary_root = Path(temporary_directory)
+                database_copy = temporary_root / "SCOM_inventario.db"
+                inventory_csv = temporary_root / "SCOM_inventario.csv"
+
+                cls.backup_database(database_copy)
+                cls._export_inventory_csv(database_copy, inventory_csv)
+
+                with zipfile.ZipFile(
+                    temporary_archive,
+                    mode="w",
+                    compression=zipfile.ZIP_DEFLATED,
+                ) as archive:
+                    archive.write(database_copy, arcname=database_copy.name)
+                    archive.write(inventory_csv, arcname=inventory_csv.name)
+
+            with zipfile.ZipFile(temporary_archive, mode="r") as verification:
+                expected_files = {"SCOM_inventario.db", "SCOM_inventario.csv"}
+                if set(verification.namelist()) != expected_files:
+                    raise BackupError(
+                        "O pacote de backup não contém os dois arquivos esperados."
+                    )
+                if verification.testzip() is not None:
+                    raise BackupError(
+                        "A verificação de integridade do pacote de backup falhou."
+                    )
+
+            temporary_archive.replace(destination_path)
+        except BackupError:
+            temporary_archive.unlink(missing_ok=True)
+            raise
+        except (OSError, csv.Error, sqlite3.Error, zipfile.BadZipFile) as error:
+            temporary_archive.unlink(missing_ok=True)
+            raise BackupError(
+                f"Não foi possível exportar o inventário: {error}"
+            ) from error
+
+        return destination_path
+
+    @classmethod
+    def _export_inventory_csv(
+        cls,
+        database_path: str | Path,
+        destination: str | Path,
+    ) -> Path:
+        destination_path = Path(destination)
+
+        with closing(sqlite3.connect(database_path)) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT
+                    p.internal_code,
+                    p.name,
+                    COALESCE(p.description, '') AS description,
+                    c.name AS category_name,
+                    COALESCE(p.component_value, '') AS component_value,
+                    COALESCE(p.component_unit, '') AS component_unit,
+                    COALESCE(m.name, '') AS model_name,
+                    p.current_quantity,
+                    p.minimum_quantity,
+                    p.physical_location,
+                    CASE
+                        WHEN p.current_quantity = 0 THEN 'Sem estoque'
+                        WHEN p.current_quantity <= p.minimum_quantity
+                            THEN 'Estoque baixo'
+                        ELSE 'Disponível'
+                    END AS stock_status,
+                    COALESCE(p.notes, '') AS notes,
+                    p.created_at,
+                    p.updated_at
+                FROM parts p
+                JOIN categories c ON c.id = p.category_id
+                LEFT JOIN models m ON m.id = p.model_id
+                ORDER BY c.name COLLATE NOCASE,
+                         p.name COLLATE NOCASE,
+                         p.internal_code COLLATE NOCASE
+                """
+            ).fetchall()
+
+        with destination_path.open(
+            "w",
+            newline="",
+            encoding="utf-8-sig",
+        ) as file:
+            writer = csv.writer(file, delimiter=";")
+            writer.writerow(cls.INVENTORY_HEADERS)
+            for row in rows:
+                writer.writerow(
+                    (
+                        row["internal_code"],
+                        row["name"],
+                        row["description"],
+                        row["category_name"],
+                        row["component_value"],
+                        row["component_unit"],
+                        row["model_name"] or "—",
+                        row["current_quantity"],
+                        row["minimum_quantity"],
+                        row["physical_location"],
+                        row["stock_status"],
+                        row["notes"],
+                        row["created_at"],
+                        row["updated_at"],
+                    )
+                )
 
         return destination_path
 
@@ -252,6 +391,11 @@ class BackupService:
     def default_database_filename() -> str:
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         return f"SCOM_backup_{timestamp}.db"
+
+    @staticmethod
+    def default_inventory_backup_filename() -> str:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        return f"SCOM_backup_inventario_{timestamp}.zip"
 
     @staticmethod
     def default_logs_filename() -> str:
