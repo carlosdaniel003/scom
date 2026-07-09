@@ -1,4 +1,5 @@
 from src.database.connection import database_connection
+from src.services.backup_service import BackupError, BackupService
 
 
 class MovementRepository:
@@ -54,6 +55,13 @@ class MovementRepository:
                 """,
                 (resulting, part_id),
             )
+
+        try:
+            BackupService.sync_movement_logs()
+        except BackupError:
+            # O banco permanece como fonte de verdade. Uma exportação futura
+            # sincroniza automaticamente qualquer movimentação ainda não gravada.
+            pass
 
     @staticmethod
     def list_recent(limit: int = 100) -> list[dict]:
