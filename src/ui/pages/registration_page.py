@@ -4,6 +4,7 @@ from pathlib import Path
 from PyQt6.QtCore import QSize, QStringListModel, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QComboBox,
     QCompleter,
     QFileDialog,
@@ -205,19 +206,25 @@ class PartForm(QWidget):
         self.model_combo.lineEdit().setPlaceholderText(
             "Digite ou selecione um modelo já cadastrado"
         )
-        self.model_completer = QCompleter(self.model_combo.model(), self.model_combo)
+        self.model_completion_model = QStringListModel(self)
+        self.model_completer = QCompleter(
+            self.model_completion_model,
+            self.model_combo.lineEdit(),
+        )
         self._configure_completer(self.model_completer)
-        self.model_combo.setCompleter(self.model_completer)
+        self.model_combo.lineEdit().setCompleter(self.model_completer)
         self.model_combo.lineEdit().textEdited.connect(self._show_model_completions)
 
         self.quantity_spin = QSpinBox()
         self.quantity_spin.setRange(0, 1_000_000)
         self.quantity_spin.setSuffix(" un.")
+        self.quantity_control = self._build_quantity_control(self.quantity_spin)
 
         self.minimum_spin = QSpinBox()
         self.minimum_spin.setRange(0, 1_000_000)
         self.minimum_spin.setValue(1)
         self.minimum_spin.setSuffix(" un.")
+        self.minimum_control = self._build_quantity_control(self.minimum_spin)
 
         self.location_edit = QLineEdit()
         self.location_edit.setPlaceholderText("Ex.: Armário A / Gaveta 03")
@@ -250,8 +257,8 @@ class PartForm(QWidget):
 
         form.addRow(self._form_section("Estoque e localização", "layers.svg"))
         if show_initial_quantity:
-            form.addRow(self._field_label("Quantidade física"), self.quantity_spin)
-        form.addRow(self._field_label("Quantidade mínima"), self.minimum_spin)
+            form.addRow(self._field_label("Quantidade física"), self.quantity_control)
+        form.addRow(self._field_label("Quantidade mínima"), self.minimum_control)
         form.addRow(self._field_label("Localização física *"), self.location_edit)
 
         form.addRow(self._form_section("Informações complementares", "notes.svg"))
@@ -297,6 +304,38 @@ class PartForm(QWidget):
         return section
 
     @staticmethod
+    def _build_quantity_control(spinbox: QSpinBox) -> QWidget:
+        spinbox.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        spinbox.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        spinbox.setKeyboardTracking(False)
+        spinbox.setAccelerated(True)
+
+        minus_button = QPushButton("−")
+        minus_button.setObjectName("secondaryButton")
+        minus_button.setFixedWidth(42)
+        minus_button.setAutoRepeat(True)
+        minus_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        minus_button.setToolTip("Diminuir quantidade")
+        minus_button.clicked.connect(lambda checked=False: spinbox.stepDown())
+
+        plus_button = QPushButton("+")
+        plus_button.setObjectName("secondaryButton")
+        plus_button.setFixedWidth(42)
+        plus_button.setAutoRepeat(True)
+        plus_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        plus_button.setToolTip("Aumentar quantidade")
+        plus_button.clicked.connect(lambda checked=False: spinbox.stepUp())
+
+        control = QWidget()
+        control_layout = QHBoxLayout(control)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_layout.setSpacing(8)
+        control_layout.addWidget(minus_button)
+        control_layout.addWidget(spinbox, 1)
+        control_layout.addWidget(plus_button)
+        return control
+
+    @staticmethod
     def _configure_completer(completer: QCompleter) -> None:
         completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         completer.setFilterMode(Qt.MatchFlag.MatchContains)
@@ -304,11 +343,13 @@ class PartForm(QWidget):
         completer.setMaxVisibleItems(10)
 
     def _show_model_completions(self, text: str) -> None:
-        if text.strip() and self.model_combo.count() > 0:
+        if text.strip() and self.model_completion_model.rowCount() > 0:
+            self.model_completer.setCompletionPrefix(text)
             self.model_completer.complete()
 
     def _show_location_completions(self, text: str) -> None:
         if text.strip() and self.location_completion_model.rowCount() > 0:
+            self.location_completer.setCompletionPrefix(text)
             self.location_completer.complete()
 
     def refresh_suggestions(self) -> None:
@@ -321,8 +362,10 @@ class PartForm(QWidget):
             self._load_model_options(category_id, current_model)
 
     def _load_model_options(self, category_id: int, current_text: str = "") -> None:
+        models = PartRepository.list_models(category_id)
+        self.model_completion_model.setStringList(models)
         self.model_combo.clear()
-        self.model_combo.addItems(PartRepository.list_models(category_id))
+        self.model_combo.addItems(models)
         self.model_combo.setCurrentText(current_text)
 
     def load_categories(self) -> None:
