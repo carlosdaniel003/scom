@@ -136,19 +136,39 @@ class PartForm(QWidget):
         self.category_combo.currentIndexChanged.connect(self.category_changed)
 
         self.component_value_edit = QLineEdit()
-        self.component_value_edit.setPlaceholderText("Informe o valor técnico")
-        self.component_value_label = self._field_label("Valor do componente")
+        self.component_value_edit.setPlaceholderText("Ex.: 100")
+        self.component_value_edit.setToolTip("Informe somente o valor numérico do componente")
+        self.component_value_label = self._field_label("Especificação técnica")
 
         self.component_unit_edit = QLineEdit()
-        self.component_unit_edit.setPlaceholderText("Unidade")
-        self.component_unit_edit.setMaximumWidth(130)
+        self.component_unit_edit.setPlaceholderText("Ex.: µF")
+        self.component_unit_edit.setToolTip("Informe a unidade de medida, como µF, kΩ, V ou A")
+        self.component_unit_edit.setMaximumWidth(160)
+
+        value_column = QWidget()
+        value_layout = QVBoxLayout(value_column)
+        value_layout.setContentsMargins(0, 0, 0, 0)
+        value_layout.setSpacing(5)
+        value_caption = QLabel("Valor")
+        value_caption.setObjectName("fieldHint")
+        value_layout.addWidget(value_caption)
+        value_layout.addWidget(self.component_value_edit)
+
+        unit_column = QWidget()
+        unit_layout = QVBoxLayout(unit_column)
+        unit_layout.setContentsMargins(0, 0, 0, 0)
+        unit_layout.setSpacing(5)
+        unit_caption = QLabel("Unidade de medida")
+        unit_caption.setObjectName("fieldHint")
+        unit_layout.addWidget(unit_caption)
+        unit_layout.addWidget(self.component_unit_edit)
 
         component_row = QWidget()
         component_layout = QHBoxLayout(component_row)
         component_layout.setContentsMargins(0, 0, 0, 0)
         component_layout.setSpacing(10)
-        component_layout.addWidget(self.component_value_edit)
-        component_layout.addWidget(self.component_unit_edit)
+        component_layout.addWidget(value_column, 1)
+        component_layout.addWidget(unit_column)
         self.component_row = component_row
 
         self.model_combo = QComboBox()
@@ -247,7 +267,7 @@ class PartForm(QWidget):
             return
         category = self.categories[index]
         required = bool(category["requires_component_value"])
-        label_text = category["value_label"] or "Valor do componente"
+        label_text = category["value_label"] or "Especificação técnica"
         self.component_value_label.setText(f"{label_text}{' *' if required else ''}")
         self.component_value_label.setVisible(required)
         self.component_row.setVisible(required)
