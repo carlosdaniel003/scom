@@ -111,11 +111,24 @@ class PartRepository:
         if category_id is not None:
             query += " WHERE category_id = ? OR category_id IS NULL"
             params = (category_id,)
-        query += " ORDER BY name"
+        query += " ORDER BY name COLLATE NOCASE"
 
         with database_connection() as connection:
             rows = connection.execute(query, params).fetchall()
         return [str(row["name"]) for row in rows]
+
+    @staticmethod
+    def list_locations() -> list[str]:
+        with database_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT TRIM(physical_location) AS physical_location
+                FROM parts
+                WHERE TRIM(COALESCE(physical_location, '')) <> ''
+                ORDER BY physical_location COLLATE NOCASE
+                """
+            ).fetchall()
+        return [str(row["physical_location"]) for row in rows]
 
     @staticmethod
     def search(search_text: str = "", status_filter: str = "all") -> list[dict]:
