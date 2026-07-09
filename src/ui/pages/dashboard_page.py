@@ -44,29 +44,59 @@ class DashboardPage(QWidget):
         header.addLayout(header_text)
         header.addStretch()
 
-        backup_button = QPushButton("Baixar banco de dados")
-        backup_button.setObjectName("secondaryButton")
-        backup_button.setIcon(QIcon(str(resource_path("icons", "save.svg"))))
-        backup_button.setIconSize(QSize(17, 17))
-        backup_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        backup_button.setToolTip("Salvar uma cópia segura do banco de dados do SCOM")
-        backup_button.clicked.connect(self.export_database_backup)
-
-        logs_button = QPushButton("Baixar logs de movimentações")
-        logs_button.setObjectName("secondaryButton")
-        logs_button.setIcon(QIcon(str(resource_path("icons", "history.svg"))))
-        logs_button.setIconSize(QSize(17, 17))
-        logs_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        logs_button.setToolTip("Exportar os logs legíveis em arquivos CSV")
-        logs_button.clicked.connect(self.export_movement_logs)
-
-        header.addWidget(backup_button, alignment=Qt.AlignmentFlag.AlignTop)
-        header.addWidget(logs_button, alignment=Qt.AlignmentFlag.AlignTop)
-
         status_chip = QLabel("●  INVENTÁRIO LOCAL")
         status_chip.setObjectName("liveStatusChip")
         header.addWidget(status_chip, alignment=Qt.AlignmentFlag.AlignTop)
         root.addLayout(header)
+
+        backup_panel = QFrame()
+        backup_panel.setObjectName("backupActionsPanel")
+        backup_layout = QHBoxLayout(backup_panel)
+        backup_layout.setContentsMargins(18, 14, 16, 14)
+        backup_layout.setSpacing(14)
+
+        backup_text = QVBoxLayout()
+        backup_text.setSpacing(2)
+
+        backup_kicker = QLabel("PROTEÇÃO E EXPORTAÇÃO")
+        backup_kicker.setObjectName("backupKicker")
+        backup_title = QLabel("Cópias de segurança")
+        backup_title.setObjectName("backupTitle")
+        backup_subtitle = QLabel(
+            "Exporte o inventário completo ou os registros legíveis de movimentação."
+        )
+        backup_subtitle.setObjectName("backupSubtitle")
+
+        backup_text.addWidget(backup_kicker)
+        backup_text.addWidget(backup_title)
+        backup_text.addWidget(backup_subtitle)
+        backup_layout.addLayout(backup_text, 1)
+
+        backup_button = QPushButton("Baixar backup do inventário")
+        backup_button.setObjectName("backupPrimaryButton")
+        backup_button.setIcon(
+            QIcon(str(resource_path("icons", "database-backup.svg")))
+        )
+        backup_button.setIconSize(QSize(21, 21))
+        backup_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        backup_button.setToolTip(
+            "Gerar um ZIP com o banco SQLite e o inventário completo em CSV"
+        )
+        backup_button.clicked.connect(self.export_inventory_backup)
+
+        logs_button = QPushButton("Baixar logs de movimentações")
+        logs_button.setObjectName("backupSecondaryButton")
+        logs_button.setIcon(QIcon(str(resource_path("icons", "logs-export.svg"))))
+        logs_button.setIconSize(QSize(21, 21))
+        logs_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        logs_button.setToolTip(
+            "Exportar os arquivos CSV legíveis do histórico de movimentações"
+        )
+        logs_button.clicked.connect(self.export_movement_logs)
+
+        backup_layout.addWidget(backup_button)
+        backup_layout.addWidget(logs_button)
+        root.addWidget(backup_panel)
 
         cards = QHBoxLayout()
         cards.setSpacing(14)
@@ -132,7 +162,15 @@ class DashboardPage(QWidget):
         self.table = QTableWidget(0, 7)
         self.table.setObjectName("dashboardTable")
         self.table.setHorizontalHeaderLabels(
-            ["Data e hora", "Código", "Peça", "Tipo", "Quantidade", "Responsável", "Motivo"]
+            [
+                "Data e hora",
+                "Código",
+                "Peça",
+                "Tipo",
+                "Quantidade",
+                "Responsável",
+                "Motivo",
+            ]
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setAlternatingRowColors(True)
@@ -151,23 +189,23 @@ class DashboardPage(QWidget):
         root.addWidget(activity_panel, 1)
         self.refresh()
 
-    def export_database_backup(self) -> None:
-        default_name = BackupService.default_database_filename()
+    def export_inventory_backup(self) -> None:
+        default_name = BackupService.default_inventory_backup_filename()
         destination, _ = QFileDialog.getSaveFileName(
             self,
-            "Salvar banco de dados do inventário",
+            "Salvar backup completo do inventário",
             default_name,
-            "Banco de dados SQLite (*.db)",
+            "Arquivo compactado (*.zip)",
         )
         if not destination:
             return
 
         destination_path = Path(destination)
-        if destination_path.suffix.lower() != ".db":
-            destination_path = destination_path.with_suffix(".db")
+        if destination_path.suffix.lower() != ".zip":
+            destination_path = destination_path.with_suffix(".zip")
 
         try:
-            saved_path = BackupService.backup_database(destination_path)
+            saved_path = BackupService.export_inventory_backup(destination_path)
         except BackupError as error:
             QMessageBox.warning(self, "Backup não realizado", str(error))
             return
@@ -175,7 +213,8 @@ class DashboardPage(QWidget):
         QMessageBox.information(
             self,
             "Backup concluído",
-            f"O banco de dados foi salvo com segurança em:\n{saved_path}",
+            "O pacote foi salvo com o banco SQLite e o inventário em CSV:\n"
+            f"{saved_path}",
         )
 
     def export_movement_logs(self) -> None:
