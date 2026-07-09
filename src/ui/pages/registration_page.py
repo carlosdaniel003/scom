@@ -345,7 +345,9 @@ class PartForm(QWidget):
     def _show_model_completions(self, text: str) -> None:
         if text.strip() and self.model_completion_model.rowCount() > 0:
             self.model_completer.setCompletionPrefix(text)
-            self.model_completer.complete()
+            popup = self.model_completer.popup()
+            popup.setMinimumWidth(self.model_combo.width())
+            self.model_completer.complete(self.model_combo.lineEdit().rect())
 
     def _show_location_completions(self, text: str) -> None:
         if text.strip() and self.location_completion_model.rowCount() > 0:
@@ -362,10 +364,15 @@ class PartForm(QWidget):
             self._load_model_options(category_id, current_model)
 
     def _load_model_options(self, category_id: int, current_text: str = "") -> None:
-        models = PartRepository.list_models(category_id)
-        self.model_completion_model.setStringList(models)
+        category_models = PartRepository.list_models(category_id)
+        all_models = PartRepository.list_models()
+        ordered_models = category_models + [
+            model for model in all_models if model not in category_models
+        ]
+
+        self.model_completion_model.setStringList(ordered_models)
         self.model_combo.clear()
-        self.model_combo.addItems(models)
+        self.model_combo.addItems(ordered_models)
         self.model_combo.setCurrentText(current_text)
 
     def load_categories(self) -> None:
