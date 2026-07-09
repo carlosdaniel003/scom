@@ -1,9 +1,15 @@
-from PyQt6.QtCore import Qt
+from pathlib import Path
+
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -12,7 +18,9 @@ from PyQt6.QtWidgets import (
 
 from src.repositories.movement_repository import MovementRepository
 from src.repositories.part_repository import PartRepository
+from src.services.backup_service import BackupError, BackupService
 from src.ui.widgets.stat_card import StatCard
+from src.utils.paths import resource_path
 
 
 class DashboardPage(QWidget):
@@ -35,6 +43,25 @@ class DashboardPage(QWidget):
         header_text.addWidget(subtitle)
         header.addLayout(header_text)
         header.addStretch()
+
+        backup_button = QPushButton("Baixar banco de dados")
+        backup_button.setObjectName("secondaryButton")
+        backup_button.setIcon(QIcon(str(resource_path("icons", "save.svg"))))
+        backup_button.setIconSize(QSize(17, 17))
+        backup_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        backup_button.setToolTip("Salvar uma cópia segura do banco de dados do SCOM")
+        backup_button.clicked.connect(self.export_database_backup)
+
+        logs_button = QPushButton("Baixar logs de movimentações")
+        logs_button.setObjectName("secondaryButton")
+        logs_button.setIcon(QIcon(str(resource_path("icons", "history.svg"))))
+        logs_button.setIconSize(QSize(17, 17))
+        logs_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        logs_button.setToolTip("Exportar os logs legíveis em arquivos CSV")
+        logs_button.clicked.connect(self.export_movement_logs)
+
+        header.addWidget(backup_button, alignment=Qt.AlignmentFlag.AlignTop)
+        header.addWidget(logs_button, alignment=Qt.AlignmentFlag.AlignTop)
 
         status_chip = QLabel("●  INVENTÁRIO LOCAL")
         status_chip.setObjectName("liveStatusChip")
@@ -123,6 +150,61 @@ class DashboardPage(QWidget):
 
         root.addWidget(activity_panel, 1)
         self.refresh()
+
+    def export_database_backup(self) -> None:
+        default_name = BackupService.default_database_filename()
+        destination, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar banco de dados do inventário",
+            default_name,
+            "Banco de dados SQLite (*.db)",
+        )
+        if not destination:
+            return
+
+        destination_path = Path(destination)
+        if destination_path.suffix.lower() != ".db":
+            destination_path = destination_path.with_suffix(".db")
+
+        try:
+            saved_path = BackupService.backup_database(destination_path)
+        except BackupError as error:
+            QMessageBox.warning(self, "Backup não realizado", str(error))
+            return
+
+        QMessageBox.information(
+            self,
+            "Backup concluído",
+            f"O banco de dados foi salvo com segurança em:\n{saved_path}",
+        )
+
+    def export_movement_logs(self) -> None:
+        default_name = BackupService.default_logs_filename()
+        destination, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar logs de movimentações",
+            default_name,
+            "Arquivo compactado (*.zip)",
+        )
+        if not destination:
+            return
+
+        destination_path = Path(destination)
+        if destination_path.suffix.lower() != ".zip":
+            destination_path = destination_path.with_suffix(".zip")
+
+        try:
+            saved_path = BackupService.export_movement_logs(destination_path)
+        except BackupError as error:
+            QMessageBox.warning(self, "Logs não exportados", str(error))
+            return
+
+        QMessageBox.information(
+            self,
+            "Logs exportados",
+            "Os logs legíveis de movimentações foram salvos em:\n"
+            f"{saved_path}",
+        )
 
     def refresh(self) -> None:
         totals = PartRepository.dashboard_totals()
