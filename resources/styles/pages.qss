@@ -93,6 +93,77 @@ QTableWidget#movementsTable {
     border-color: #3b87b0;
 }
 
+/* Área de proteção e exportação da visão geral */
+QFrame#backupActionsPanel {
+    background: #0a1c2b;
+    border: 1px solid #1c4561;
+    border-radius: 12px;
+}
+
+QFrame#backupActionsPanel:hover {
+    background: #0c2132;
+    border-color: #276486;
+}
+
+#backupKicker {
+    color: #61c5ff;
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: 1px;
+}
+
+#backupTitle {
+    color: #eaf5ff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+#backupSubtitle {
+    color: #7898b1;
+    font-size: 10px;
+}
+
+QPushButton#backupPrimaryButton,
+QPushButton#backupSecondaryButton {
+    min-height: 42px;
+    min-width: 215px;
+    border-radius: 9px;
+    padding: 0 16px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: left;
+}
+
+QPushButton#backupPrimaryButton {
+    background: #147fbd;
+    border: 1px solid #3aa9df;
+    color: #ffffff;
+}
+
+QPushButton#backupPrimaryButton:hover {
+    background: #1798db;
+    border-color: #69c7f2;
+}
+
+QPushButton#backupPrimaryButton:pressed {
+    background: #0f6b9e;
+}
+
+QPushButton#backupSecondaryButton {
+    background: #102b40;
+    border: 1px solid #2b6385;
+    color: #d9efff;
+}
+
+QPushButton#backupSecondaryButton:hover {
+    background: #174462;
+    border-color: #48a0cc;
+}
+
+QPushButton#backupSecondaryButton:pressed {
+    background: #0c2638;
+}
+
 /* Indicadores compactos de movimentação */
 QFrame#compactMetric,
 QFrame#compactMetricSuccess,
