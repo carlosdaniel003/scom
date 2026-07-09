@@ -1,6 +1,7 @@
 import csv
 import sqlite3
 import zipfile
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -34,36 +35,48 @@ class BackupService:
 
     @staticmethod
     def backup_database(destination: str | Path) -> Path:
-        ensure_directories()
         destination_path = Path(destination)
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = destination_path.with_suffix(
+            f"{destination_path.suffix}.temporary"
+        )
 
         try:
+            ensure_directories()
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+
             if destination_path.resolve() == DATABASE_PATH.resolve():
                 raise BackupError(
                     "Escolha um local diferente do banco de dados em uso."
                 )
 
-            source = sqlite3.connect(DATABASE_PATH)
-            target = sqlite3.connect(destination_path)
-            try:
-                source.backup(target)
-            finally:
-                target.close()
-                source.close()
+            temporary_path.unlink(missing_ok=True)
+            with closing(sqlite3.connect(DATABASE_PATH)) as source:
+                with closing(sqlite3.connect(temporary_path)) as target:
+                    source.backup(target)
+
+            with closing(sqlite3.connect(temporary_path)) as verification:
+                result = verification.execute("PRAGMA quick_check").fetchone()
+                if not result or result[0] != "ok":
+                    raise BackupError(
+                        "A verificação de integridade do backup não foi aprovada."
+                    )
+
+            temporary_path.replace(destination_path)
         except BackupError:
+            temporary_path.unlink(missing_ok=True)
             raise
         except (OSError, sqlite3.Error) as error:
+            temporary_path.unlink(missing_ok=True)
             raise BackupError(f"Não foi possível criar o backup: {error}") from error
 
         return destination_path
 
     @classmethod
     def sync_movement_logs(cls) -> int:
-        cls._ensure_log_directory()
-        last_logged_id = cls._last_logged_id()
-
         try:
+            cls._ensure_log_directory()
+            last_logged_id = cls._last_logged_id()
+
             with database_connection() as connection:
                 rows = connection.execute(
                     """
@@ -89,15 +102,12 @@ class BackupService:
                     """,
                     (last_logged_id,),
                 ).fetchall()
-        except sqlite3.Error as error:
-            raise BackupError(
-                f"Não foi possível consultar as movimentações: {error}"
-            ) from error
 
-        try:
             for row in rows:
                 cls._append_log_row(dict(row))
-        except (OSError, csv.Error, ValueError) as error:
+        except BackupError:
+            raise
+        except (OSError, csv.Error, sqlite3.Error, ValueError) as error:
             raise BackupError(
                 f"Não foi possível atualizar os arquivos de log: {error}"
             ) from error
@@ -107,20 +117,36 @@ class BackupService:
     @classmethod
     def export_movement_logs(cls, destination: str | Path) -> Path:
         destination_path = Path(destination)
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-
-        cls.sync_movement_logs()
-        cls._ensure_empty_log_file()
+        temporary_path = destination_path.with_suffix(
+            f"{destination_path.suffix}.temporary"
+        )
 
         try:
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            cls.sync_movement_logs()
+            cls._ensure_empty_log_file()
+
+            temporary_path.unlink(missing_ok=True)
             with zipfile.ZipFile(
-                destination_path,
+                temporary_path,
                 mode="w",
                 compression=zipfile.ZIP_DEFLATED,
             ) as archive:
                 for log_file in cls._log_files():
                     archive.write(log_file, arcname=log_file.name)
-        except (OSError, zipfile.BadZipFile) as error:
+
+            with zipfile.ZipFile(temporary_path, mode="r") as verification:
+                if verification.testzip() is not None:
+                    raise BackupError(
+                        "A verificação de integridade do arquivo de logs falhou."
+                    )
+
+            temporary_path.replace(destination_path)
+        except BackupError:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        except (OSError, csv.Error, sqlite3.Error, zipfile.BadZipFile) as error:
+            temporary_path.unlink(missing_ok=True)
             raise BackupError(
                 f"Não foi possível exportar os logs: {error}"
             ) from error
@@ -189,19 +215,17 @@ class BackupService:
 
     @classmethod
     def _last_logged_id(cls) -> int:
-        files = cls._log_files()
-        if not files:
-            return 0
-
-        latest_file = files[-1]
-        last_id = 0
-        with latest_file.open("r", newline="", encoding="utf-8-sig") as file:
-            reader = csv.reader(file, delimiter=";")
-            next(reader, None)
-            for row in reader:
-                if row and row[0].isdigit():
-                    last_id = int(row[0])
-        return last_id
+        for log_file in reversed(cls._log_files()):
+            last_id = 0
+            with log_file.open("r", newline="", encoding="utf-8-sig") as file:
+                reader = csv.reader(file, delimiter=";")
+                next(reader, None)
+                for row in reader:
+                    if row and row[0].isdigit():
+                        last_id = int(row[0])
+            if last_id:
+                return last_id
+        return 0
 
     @classmethod
     def _append_log_row(cls, movement: dict) -> None:
