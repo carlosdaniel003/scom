@@ -103,8 +103,6 @@ class PartRepository:
             try:
                 BackupService.sync_movement_logs()
             except BackupError:
-                # O histórico permanece preservado no SQLite e será sincronizado
-                # novamente quando os logs forem exportados.
                 pass
 
         return part_id
@@ -176,7 +174,10 @@ class PartRepository:
         return [str(row["physical_location"]) for row in rows]
 
     @staticmethod
-    def search(search_text: str = "", status_filter: str = "all") -> list[dict]:
+    def _search_conditions(
+        search_text: str,
+        status_filter: str,
+    ) -> tuple[list[str], list[Any]]:
         search_terms = [term for term in search_text.strip().split() if term]
         conditions: list[str] = []
         params: list[Any] = []
@@ -214,29 +215,100 @@ class PartRepository:
         elif status_filter == "available":
             conditions.append("p.current_quantity > p.minimum_quantity")
 
-        query = f"""
-            SELECT
-                p.id, p.image_path, p.internal_code, p.name, p.description,
-                p.category_id, c.name AS category_name,
-                p.component_value, p.component_unit,
-                COALESCE(m.name, '') AS model_name,
-                p.current_quantity, p.minimum_quantity,
-                p.physical_location, p.notes,
-                p.created_at, p.updated_at,
-                CASE
-                    WHEN p.current_quantity = 0 THEN 'Sem estoque'
-                    WHEN p.current_quantity <= p.minimum_quantity THEN 'Estoque baixo'
-                    ELSE 'Disponível'
-                END AS stock_status
+        return conditions, params
+
+    @classmethod
+    def search_paginated(
+        cls,
+        search_text: str = "",
+        status_filter: str = "all",
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict:
+        safe_page_size = min(max(int(page_size), 1), 200)
+        conditions, params = cls._search_conditions(search_text, status_filter)
+        where_clause = " AND ".join(conditions)
+
+        count_query = f"""
+            SELECT COUNT(*) AS total
             FROM parts p
             JOIN categories c ON c.id = p.category_id
             LEFT JOIN models m ON m.id = p.model_id
-            WHERE {' AND '.join(conditions)}
-            ORDER BY p.name COLLATE NOCASE, p.internal_code COLLATE NOCASE
+            WHERE {where_clause}
         """
 
         with database_connection() as connection:
-            rows = connection.execute(query, params).fetchall()
+            total = int(connection.execute(count_query, params).fetchone()["total"])
+            total_pages = max(1, (total + safe_page_size - 1) // safe_page_size)
+            current_page = min(max(int(page), 1), total_pages)
+            offset = (current_page - 1) * safe_page_size
+
+            rows = connection.execute(
+                f"""
+                SELECT
+                    p.id, p.image_path, p.internal_code, p.name, p.description,
+                    p.category_id, c.name AS category_name,
+                    p.component_value, p.component_unit,
+                    COALESCE(m.name, '') AS model_name,
+                    p.current_quantity, p.minimum_quantity,
+                    p.physical_location, p.notes,
+                    p.created_at, p.updated_at,
+                    CASE
+                        WHEN p.current_quantity = 0 THEN 'Sem estoque'
+                        WHEN p.current_quantity <= p.minimum_quantity
+                            THEN 'Estoque baixo'
+                        ELSE 'Disponível'
+                    END AS stock_status
+                FROM parts p
+                JOIN categories c ON c.id = p.category_id
+                LEFT JOIN models m ON m.id = p.model_id
+                WHERE {where_clause}
+                ORDER BY p.name COLLATE NOCASE,
+                         p.internal_code COLLATE NOCASE
+                LIMIT ? OFFSET ?
+                """,
+                [*params, safe_page_size, offset],
+            ).fetchall()
+
+        return {
+            "items": [dict(row) for row in rows],
+            "total": total,
+            "page": current_page,
+            "pages": total_pages,
+            "page_size": safe_page_size,
+        }
+
+    @classmethod
+    def search(cls, search_text: str = "", status_filter: str = "all") -> list[dict]:
+        conditions, params = cls._search_conditions(search_text, status_filter)
+        where_clause = " AND ".join(conditions)
+
+        with database_connection() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    p.id, p.image_path, p.internal_code, p.name, p.description,
+                    p.category_id, c.name AS category_name,
+                    p.component_value, p.component_unit,
+                    COALESCE(m.name, '') AS model_name,
+                    p.current_quantity, p.minimum_quantity,
+                    p.physical_location, p.notes,
+                    p.created_at, p.updated_at,
+                    CASE
+                        WHEN p.current_quantity = 0 THEN 'Sem estoque'
+                        WHEN p.current_quantity <= p.minimum_quantity
+                            THEN 'Estoque baixo'
+                        ELSE 'Disponível'
+                    END AS stock_status
+                FROM parts p
+                JOIN categories c ON c.id = p.category_id
+                LEFT JOIN models m ON m.id = p.model_id
+                WHERE {where_clause}
+                ORDER BY p.name COLLATE NOCASE,
+                         p.internal_code COLLATE NOCASE
+                """,
+                params,
+            ).fetchall()
         return [dict(row) for row in rows]
 
     @staticmethod
