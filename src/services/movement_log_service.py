@@ -84,7 +84,13 @@ class MovementLogService:
             return len(rows)
         except BackupError:
             raise
-        except (OSError, ValueError, csv.Error, sqlite3.Error, json.JSONDecodeError) as error:
+        except (
+            OSError,
+            ValueError,
+            csv.Error,
+            sqlite3.Error,
+            json.JSONDecodeError,
+        ) as error:
             raise BackupError(
                 f"Não foi possível atualizar os arquivos de log: {error}"
             ) from error
@@ -158,7 +164,13 @@ class MovementLogService:
                         "last_id": last_id,
                         "file_size": file_size,
                     }
-            except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                OSError,
+                json.JSONDecodeError,
+            ):
                 pass
 
         return cls._rebuild_state()
@@ -179,15 +191,17 @@ class MovementLogService:
 
         active_file = files[-1]
         sequence = cls._sequence(active_file)
-        records = 0
-        last_id = 0
-        with active_file.open("r", newline="", encoding="utf-8-sig") as file:
-            reader = csv.reader(file, delimiter=";")
-            next(reader, None)
-            for row in reader:
-                records += 1
-                if row and row[0].isdigit():
-                    last_id = int(row[0])
+        records, last_id = cls._inspect_log_file(active_file)
+
+        # Um arquivo novo pode existir apenas com o cabeçalho caso o programa
+        # seja encerrado entre a rotação e a primeira gravação. Nesse caso,
+        # recupera o último ID do arquivo anterior para impedir duplicação.
+        if last_id == 0:
+            for previous_file in reversed(files[:-1]):
+                _, previous_last_id = cls._inspect_log_file(previous_file)
+                if previous_last_id:
+                    last_id = previous_last_id
+                    break
 
         state = {
             "sequence": sequence,
@@ -197,6 +211,19 @@ class MovementLogService:
         }
         cls._save_state(state)
         return state
+
+    @staticmethod
+    def _inspect_log_file(path: Path) -> tuple[int, int]:
+        records = 0
+        last_id = 0
+        with path.open("r", newline="", encoding="utf-8-sig") as file:
+            reader = csv.reader(file, delimiter=";")
+            next(reader, None)
+            for row in reader:
+                records += 1
+                if row and row[0].isdigit():
+                    last_id = int(row[0])
+        return records, last_id
 
     @classmethod
     def _save_state(cls, state: dict) -> None:
