@@ -55,7 +55,14 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 CREATE INDEX IF NOT EXISTS idx_parts_internal_code ON parts(internal_code);
 CREATE INDEX IF NOT EXISTS idx_parts_name ON parts(name);
 CREATE INDEX IF NOT EXISTS idx_parts_location ON parts(physical_location);
+CREATE INDEX IF NOT EXISTS idx_parts_category_id ON parts(category_id);
+CREATE INDEX IF NOT EXISTS idx_parts_model_id ON parts(model_id);
+CREATE INDEX IF NOT EXISTS idx_parts_current_quantity ON parts(current_quantity);
+CREATE INDEX IF NOT EXISTS idx_parts_component_value ON parts(component_value);
+CREATE INDEX IF NOT EXISTS idx_models_category_id ON models(category_id);
 CREATE INDEX IF NOT EXISTS idx_movements_part_id ON stock_movements(part_id);
+CREATE INDEX IF NOT EXISTS idx_movements_type ON stock_movements(movement_type);
+CREATE INDEX IF NOT EXISTS idx_movements_created_at ON stock_movements(created_at);
 """
 
 DEFAULT_CATEGORIES = (
