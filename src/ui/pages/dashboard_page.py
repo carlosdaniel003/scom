@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -24,6 +24,8 @@ from src.utils.paths import resource_path
 
 
 class DashboardPage(QWidget):
+    inventory_imported = pyqtSignal()
+
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("dashboardPage")
@@ -51,9 +53,12 @@ class DashboardPage(QWidget):
 
         backup_panel = QFrame()
         backup_panel.setObjectName("backupActionsPanel")
-        backup_layout = QHBoxLayout(backup_panel)
-        backup_layout.setContentsMargins(18, 14, 16, 14)
-        backup_layout.setSpacing(14)
+        backup_layout = QVBoxLayout(backup_panel)
+        backup_layout.setContentsMargins(18, 14, 16, 15)
+        backup_layout.setSpacing(12)
+
+        backup_header = QHBoxLayout()
+        backup_header.setSpacing(12)
 
         backup_text = QVBoxLayout()
         backup_text.setSpacing(2)
@@ -63,14 +68,37 @@ class DashboardPage(QWidget):
         backup_title = QLabel("Cópias de segurança")
         backup_title.setObjectName("backupTitle")
         backup_subtitle = QLabel(
-            "Exporte o inventário completo ou os registros legíveis de movimentação."
+            "Importe um banco validado ou exporte dados, fotos e rastreabilidade."
         )
         backup_subtitle.setObjectName("backupSubtitle")
 
         backup_text.addWidget(backup_kicker)
         backup_text.addWidget(backup_title)
         backup_text.addWidget(backup_subtitle)
-        backup_layout.addLayout(backup_text, 1)
+        backup_header.addLayout(backup_text, 1)
+
+        safety_label = QLabel("BACKUP AUTOMÁTICO ANTES DA IMPORTAÇÃO")
+        safety_label.setObjectName("backupSafetyChip")
+        backup_header.addWidget(
+            safety_label,
+            alignment=Qt.AlignmentFlag.AlignTop,
+        )
+        backup_layout.addLayout(backup_header)
+
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(10)
+
+        import_button = QPushButton("Importar inventário")
+        import_button.setObjectName("backupImportButton")
+        import_button.setIcon(
+            QIcon(str(resource_path("icons", "import-inventory.svg")))
+        )
+        import_button.setIconSize(QSize(21, 21))
+        import_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        import_button.setToolTip(
+            "Restaurar um inventário a partir de um arquivo .db ou ZIP do SCOM"
+        )
+        import_button.clicked.connect(self.import_inventory)
 
         backup_button = QPushButton("Baixar backup do inventário")
         backup_button.setObjectName("backupPrimaryButton")
@@ -80,7 +108,7 @@ class DashboardPage(QWidget):
         backup_button.setIconSize(QSize(21, 21))
         backup_button.setCursor(Qt.CursorShape.PointingHandCursor)
         backup_button.setToolTip(
-            "Gerar um ZIP com o banco SQLite e o inventário completo em CSV"
+            "Gerar um ZIP com banco SQLite, inventário CSV e fotos cadastradas"
         )
         backup_button.clicked.connect(self.export_inventory_backup)
 
@@ -94,8 +122,10 @@ class DashboardPage(QWidget):
         )
         logs_button.clicked.connect(self.export_movement_logs)
 
-        backup_layout.addWidget(backup_button)
-        backup_layout.addWidget(logs_button)
+        actions_layout.addWidget(import_button, 1)
+        actions_layout.addWidget(backup_button, 1)
+        actions_layout.addWidget(logs_button, 1)
+        backup_layout.addLayout(actions_layout)
         root.addWidget(backup_panel)
 
         cards = QHBoxLayout()
@@ -189,6 +219,46 @@ class DashboardPage(QWidget):
         root.addWidget(activity_panel, 1)
         self.refresh()
 
+    def import_inventory(self) -> None:
+        source, _ = QFileDialog.getOpenFileName(
+            self,
+            "Selecionar backup do inventário",
+            "",
+            "Backup do SCOM (*.zip *.db)",
+        )
+        if not source:
+            return
+
+        confirmation = QMessageBox.question(
+            self,
+            "Importar inventário",
+            "O inventário atual será substituído pelos dados do arquivo selecionado.\n\n"
+            "Antes da substituição, o SCOM criará automaticamente um backup "
+            "completo do inventário atual. Deseja continuar?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirmation != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            result = BackupService.import_inventory(source)
+        except BackupError as error:
+            QMessageBox.warning(self, "Importação não realizada", str(error))
+            return
+
+        self.inventory_imported.emit()
+        QMessageBox.information(
+            self,
+            "Inventário importado",
+            "A restauração foi concluída com sucesso.\n\n"
+            f"Peças carregadas: {result['parts']}\n"
+            f"Movimentações carregadas: {result['movements']}\n"
+            f"Fotos restauradas: {result['photos']}\n\n"
+            "Backup de segurança do inventário anterior:\n"
+            f"{result['safety_backup']}",
+        )
+
     def export_inventory_backup(self) -> None:
         default_name = BackupService.default_inventory_backup_filename()
         destination, _ = QFileDialog.getSaveFileName(
@@ -213,7 +283,7 @@ class DashboardPage(QWidget):
         QMessageBox.information(
             self,
             "Backup concluído",
-            "O pacote foi salvo com o banco SQLite e o inventário em CSV:\n"
+            "O pacote foi salvo com o banco SQLite, inventário CSV e fotos:\n"
             f"{saved_path}",
         )
 
