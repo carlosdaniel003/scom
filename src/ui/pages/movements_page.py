@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, QTimer
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from src.repositories.movement_repository import MovementRepository
 from src.ui.widgets.compact_metric import CompactMetric
 from src.ui.widgets.page_header import PageHeader, SectionHeader
+from src.ui.widgets.pagination_bar import PaginationBar
 from src.utils.paths import resource_path
 
 
@@ -24,7 +25,13 @@ class MovementsPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.movement_filter = "all"
-        self.all_movements: list[dict] = []
+        self.current_page = 1
+        self.page_size = 25
+
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)
+        self.search_timer.timeout.connect(self.refresh_table)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(30, 26, 30, 30)
@@ -40,9 +47,20 @@ class MovementsPage(QWidget):
 
         metrics = QHBoxLayout()
         metrics.setSpacing(12)
-        self.total_metric = CompactMetric("Movimentações registradas", "history.svg")
-        self.entry_metric = CompactMetric("Entradas", "entry.svg", "compactMetricSuccess")
-        self.exit_metric = CompactMetric("Saídas", "withdrawal.svg", "compactMetricDanger")
+        self.total_metric = CompactMetric(
+            "Movimentações registradas",
+            "history.svg",
+        )
+        self.entry_metric = CompactMetric(
+            "Entradas",
+            "entry.svg",
+            "compactMetricSuccess",
+        )
+        self.exit_metric = CompactMetric(
+            "Saídas",
+            "withdrawal.svg",
+            "compactMetricDanger",
+        )
         metrics.addWidget(self.total_metric)
         metrics.addWidget(self.entry_metric)
         metrics.addWidget(self.exit_metric)
@@ -63,7 +81,7 @@ class MovementsPage(QWidget):
             QIcon(str(resource_path("icons", "search.svg"))),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        self.search_edit.textChanged.connect(self.apply_filters)
+        self.search_edit.textChanged.connect(self._schedule_search)
         filter_layout.addWidget(self.search_edit, 1)
 
         filter_label = QLabel("TIPO")
@@ -86,7 +104,9 @@ class MovementsPage(QWidget):
             if value == "all":
                 button.setChecked(True)
             button.clicked.connect(
-                lambda checked=False, filter_value=value: self.set_filter(filter_value)
+                lambda checked=False, filter_value=value: self.set_filter(
+                    filter_value
+                )
             )
             self.filter_group.addButton(button)
             filter_layout.addWidget(button)
@@ -138,47 +158,48 @@ class MovementsPage(QWidget):
         table_header.setSectionResizeMode(8, QHeaderView.ResizeMode.Stretch)
         data_layout.addWidget(self.table, 1)
 
+        self.pagination = PaginationBar(self.page_size)
+        self.pagination.page_changed.connect(self.change_page)
+        data_layout.addWidget(self.pagination)
+
         root.addWidget(data_panel, 1)
         self.refresh()
 
+    def _schedule_search(self) -> None:
+        self.current_page = 1
+        self.search_timer.start()
+
     def set_filter(self, value: str) -> None:
         self.movement_filter = value
-        self.apply_filters()
+        self.current_page = 1
+        self.refresh_table()
+
+    def change_page(self, page: int) -> None:
+        self.current_page = page
+        self.refresh_table()
 
     def refresh(self) -> None:
-        self.all_movements = MovementRepository.list_recent(500)
-        entries = sum(1 for movement in self.all_movements if movement["movement_type"] == "ENTRADA")
-        exits = sum(1 for movement in self.all_movements if movement["movement_type"] == "SAÍDA")
-        self.total_metric.set_value(len(self.all_movements))
-        self.entry_metric.set_value(entries)
-        self.exit_metric.set_value(exits)
-        self.apply_filters()
+        summary = MovementRepository.summary()
+        self.total_metric.set_value(summary["total"])
+        self.entry_metric.set_value(summary["entries"])
+        self.exit_metric.set_value(summary["exits"])
+        self.refresh_table()
 
-    def apply_filters(self) -> None:
-        query = self.search_edit.text().strip().lower()
-        movements = []
+    def refresh_table(self) -> None:
+        result = MovementRepository.search_paginated(
+            self.search_edit.text(),
+            self.movement_filter,
+            self.current_page,
+            self.page_size,
+        )
+        movements = result["items"]
+        total = int(result["total"])
+        self.current_page = int(result["page"])
 
-        for movement in self.all_movements:
-            if self.movement_filter != "all" and movement["movement_type"] != self.movement_filter:
-                continue
-
-            searchable = " ".join(
-                str(movement.get(field) or "")
-                for field in (
-                    "created_at",
-                    "internal_code",
-                    "part_name",
-                    "movement_type",
-                    "responsible",
-                    "reason",
-                )
-            ).lower()
-            if query and query not in searchable:
-                continue
-            movements.append(movement)
-
-        self.result_label.setText(f"{len(movements)} REGISTRO(S)")
+        self.result_label.setText(f"{total} REGISTRO(S)")
+        self.pagination.set_state(self.current_page, total)
         self.table.clearSpans()
+        self.table.clearContents()
 
         if not movements:
             self.table.setRowCount(1)
@@ -212,9 +233,20 @@ class MovementsPage(QWidget):
                 if column == 3:
                     if value == "ENTRADA":
                         item.setForeground(QColor("#6ee7b7"))
-                        item.setIcon(QIcon(str(resource_path("icons", "entry.svg"))))
+                        item.setIcon(
+                            QIcon(str(resource_path("icons", "entry.svg")))
+                        )
                     else:
                         item.setForeground(QColor("#ff8093"))
-                        item.setIcon(QIcon(str(resource_path("icons", "withdrawal.svg"))))
+                        item.setIcon(
+                            QIcon(
+                                str(
+                                    resource_path(
+                                        "icons",
+                                        "withdrawal.svg",
+                                    )
+                                )
+                            )
+                        )
                 self.table.setItem(row_index, column, item)
             self.table.setRowHeight(row_index, 48)
