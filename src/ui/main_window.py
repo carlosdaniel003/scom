@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
 
         self.registration_page.part_saved.connect(self.refresh_all)
         self.inventory_page.inventory_changed.connect(self.refresh_all)
+        self.dashboard_page.inventory_imported.connect(self.reload_after_import)
 
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_clock)
@@ -273,3 +274,11 @@ class MainWindow(QMainWindow):
         self.dashboard_page.refresh()
         self.inventory_page.refresh()
         self.movements_page.refresh()
+
+    def reload_after_import(self) -> None:
+        self.inventory_page.current_page = 1
+        self.movements_page.current_page = 1
+        self.registration_page.form.load_categories()
+        self.registration_page.form.clear()
+        self.registration_page.form.refresh_suggestions()
+        self.refresh_all()
