@@ -1,4 +1,5 @@
 import csv
+import shutil
 import sqlite3
 import zipfile
 from contextlib import closing
@@ -7,7 +8,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from src.database.connection import database_connection
-from src.utils.paths import DATA_DIR, DATABASE_PATH, ensure_directories
+from src.utils.paths import (
+    DATA_DIR,
+    DATABASE_PATH,
+    PROJECT_ROOT,
+    UPLOAD_DIR,
+    ensure_directories,
+)
 
 
 class BackupError(RuntimeError):
@@ -17,7 +24,9 @@ class BackupError(RuntimeError):
 class BackupService:
     MAX_LOG_FILES = 10
     MAX_RECORDS_PER_FILE = 10_000
+    MAX_SAFETY_BACKUPS = 5
     LOG_DIRECTORY = DATA_DIR / "movement_logs"
+    SAFETY_BACKUP_DIRECTORY = DATA_DIR / "import_safety_backups"
     LOG_PREFIX = "movimentacoes_"
 
     INVENTORY_HEADERS = (
@@ -32,6 +41,7 @@ class BackupService:
         "Quantidade mínima",
         "Localização física",
         "Status",
+        "Foto no backup",
         "Observações",
         "Criado em",
         "Atualizado em",
@@ -51,6 +61,32 @@ class BackupService:
         "Responsável",
         "Motivo",
     )
+
+    REQUIRED_DATABASE_COLUMNS = {
+        "categories": {"id", "name", "requires_component_value"},
+        "models": {"id", "name", "category_id"},
+        "parts": {
+            "id",
+            "internal_code",
+            "name",
+            "category_id",
+            "current_quantity",
+            "minimum_quantity",
+            "physical_location",
+            "image_path",
+        },
+        "stock_movements": {
+            "id",
+            "part_id",
+            "movement_type",
+            "quantity",
+            "previous_quantity",
+            "resulting_quantity",
+            "reason",
+            "responsible",
+            "created_at",
+        },
+    }
 
     @staticmethod
     def backup_database(destination: str | Path) -> Path:
@@ -73,13 +109,7 @@ class BackupService:
                 with closing(sqlite3.connect(temporary_path)) as target:
                     source.backup(target)
 
-            with closing(sqlite3.connect(temporary_path)) as verification:
-                result = verification.execute("PRAGMA quick_check").fetchone()
-                if not result or result[0] != "ok":
-                    raise BackupError(
-                        "A verificação de integridade do backup não foi aprovada."
-                    )
-
+            BackupService._validate_database(temporary_path)
             temporary_path.replace(destination_path)
         except BackupError:
             temporary_path.unlink(missing_ok=True)
@@ -105,8 +135,10 @@ class BackupService:
                 temporary_root = Path(temporary_directory)
                 database_copy = temporary_root / "SCOM_inventario.db"
                 inventory_csv = temporary_root / "SCOM_inventario.csv"
+                photos_directory = temporary_root / "photos"
 
                 cls.backup_database(database_copy)
+                cls._prepare_backup_photos(database_copy, photos_directory)
                 cls._export_inventory_csv(database_copy, inventory_csv)
 
                 with zipfile.ZipFile(
@@ -116,12 +148,19 @@ class BackupService:
                 ) as archive:
                     archive.write(database_copy, arcname=database_copy.name)
                     archive.write(inventory_csv, arcname=inventory_csv.name)
+                    if photos_directory.exists():
+                        for photo in photos_directory.rglob("*"):
+                            if photo.is_file():
+                                archive.write(
+                                    photo,
+                                    arcname=photo.relative_to(temporary_root).as_posix(),
+                                )
 
             with zipfile.ZipFile(temporary_archive, mode="r") as verification:
-                expected_files = {"SCOM_inventario.db", "SCOM_inventario.csv"}
-                if set(verification.namelist()) != expected_files:
+                required_files = {"SCOM_inventario.db", "SCOM_inventario.csv"}
+                if not required_files.issubset(set(verification.namelist())):
                     raise BackupError(
-                        "O pacote de backup não contém os dois arquivos esperados."
+                        "O pacote de backup não contém os arquivos obrigatórios."
                     )
                 if verification.testzip() is not None:
                     raise BackupError(
@@ -139,6 +178,265 @@ class BackupService:
             ) from error
 
         return destination_path
+
+    @classmethod
+    def import_inventory(cls, source: str | Path) -> dict:
+        source_path = Path(source)
+        if not source_path.exists() or not source_path.is_file():
+            raise BackupError("O arquivo selecionado não existe.")
+        if source_path.suffix.lower() not in {".db", ".zip"}:
+            raise BackupError("Selecione um arquivo de backup .db ou .zip.")
+
+        ensure_directories()
+
+        try:
+            with TemporaryDirectory(prefix="scom_import_") as temporary_directory:
+                temporary_root = Path(temporary_directory)
+                photos_root: Path | None = None
+
+                if source_path.suffix.lower() == ".zip":
+                    cls._safe_extract_zip(source_path, temporary_root)
+                    database_candidates = list(temporary_root.rglob("*.db"))
+                    if len(database_candidates) != 1:
+                        raise BackupError(
+                            "O ZIP deve conter exatamente um banco de dados .db."
+                        )
+                    imported_database = database_candidates[0]
+                    photos_root = temporary_root / "photos"
+                else:
+                    imported_database = temporary_root / "SCOM_importado.db"
+                    shutil.copy2(source_path, imported_database)
+
+                cls._validate_database(imported_database)
+                copied_photos = cls._normalize_imported_photos(
+                    imported_database,
+                    photos_root,
+                )
+                cls._validate_database(imported_database)
+
+                safety_backup = cls._create_safety_backup()
+                importing_path = DATABASE_PATH.with_suffix(".db.importing")
+                importing_path.unlink(missing_ok=True)
+                shutil.copy2(imported_database, importing_path)
+                cls._validate_database(importing_path)
+                importing_path.replace(DATABASE_PATH)
+
+            for log_file in cls._log_files():
+                log_file.unlink(missing_ok=True)
+            cls.sync_movement_logs()
+
+            with database_connection() as connection:
+                part_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS total FROM parts"
+                    ).fetchone()["total"]
+                )
+                movement_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS total FROM stock_movements"
+                    ).fetchone()["total"]
+                )
+        except BackupError:
+            raise
+        except (OSError, sqlite3.Error, zipfile.BadZipFile) as error:
+            raise BackupError(
+                f"Não foi possível importar o inventário: {error}"
+            ) from error
+
+        return {
+            "parts": part_count,
+            "movements": movement_count,
+            "photos": copied_photos,
+            "safety_backup": safety_backup,
+        }
+
+    @classmethod
+    def _prepare_backup_photos(
+        cls,
+        database_path: str | Path,
+        photos_directory: Path,
+    ) -> int:
+        copied_count = 0
+        with closing(sqlite3.connect(database_path)) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT id, image_path
+                FROM parts
+                WHERE TRIM(COALESCE(image_path, '')) <> ''
+                ORDER BY id
+                """
+            ).fetchall()
+
+            for row in rows:
+                source = cls._resolve_existing_image(row["image_path"])
+                if source is None:
+                    connection.execute(
+                        "UPDATE parts SET image_path = NULL WHERE id = ?",
+                        (row["id"],),
+                    )
+                    continue
+
+                photos_directory.mkdir(parents=True, exist_ok=True)
+                destination_name = f"{row['id']}_{source.name}"
+                destination = photos_directory / destination_name
+                shutil.copy2(source, destination)
+                relative_path = Path("photos", destination_name).as_posix()
+                connection.execute(
+                    "UPDATE parts SET image_path = ? WHERE id = ?",
+                    (relative_path, row["id"]),
+                )
+                copied_count += 1
+
+            connection.commit()
+        return copied_count
+
+    @staticmethod
+    def _resolve_existing_image(image_path: str | None) -> Path | None:
+        if not image_path:
+            return None
+
+        path = Path(image_path)
+        candidates = [path]
+        if not path.is_absolute():
+            candidates.append(PROJECT_ROOT / path)
+            candidates.append(UPLOAD_DIR / path.name)
+
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        return None
+
+    @classmethod
+    def _normalize_imported_photos(
+        cls,
+        database_path: Path,
+        photos_root: Path | None,
+    ) -> int:
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        copied_count = 0
+
+        with closing(sqlite3.connect(database_path)) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT id, image_path
+                FROM parts
+                WHERE TRIM(COALESCE(image_path, '')) <> ''
+                """
+            ).fetchall()
+
+            for row in rows:
+                stored_path = str(row["image_path"] or "")
+                source: Path | None = None
+
+                if photos_root and photos_root.exists():
+                    relative_candidate = photos_root.parent / stored_path
+                    basename_candidate = photos_root / Path(stored_path).name
+                    for candidate in (relative_candidate, basename_candidate):
+                        if candidate.exists() and candidate.is_file():
+                            source = candidate
+                            break
+
+                if source is None:
+                    source = cls._resolve_existing_image(stored_path)
+
+                if source is None:
+                    connection.execute(
+                        "UPDATE parts SET image_path = NULL WHERE id = ?",
+                        (row["id"],),
+                    )
+                    continue
+
+                destination = UPLOAD_DIR / source.name
+                if source.resolve() != destination.resolve():
+                    shutil.copy2(source, destination)
+                    copied_count += 1
+                connection.execute(
+                    "UPDATE parts SET image_path = ? WHERE id = ?",
+                    (str(destination), row["id"]),
+                )
+
+            connection.commit()
+
+        return copied_count
+
+    @classmethod
+    def _create_safety_backup(cls) -> Path:
+        cls.SAFETY_BACKUP_DIRECTORY.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        destination = (
+            cls.SAFETY_BACKUP_DIRECTORY
+            / f"SCOM_antes_importacao_{timestamp}.zip"
+        )
+        cls.export_inventory_backup(destination)
+
+        backups = sorted(
+            cls.SAFETY_BACKUP_DIRECTORY.glob("SCOM_antes_importacao_*.zip"),
+            key=lambda path: path.stat().st_mtime,
+        )
+        excess = len(backups) - cls.MAX_SAFETY_BACKUPS
+        for old_backup in backups[:max(excess, 0)]:
+            old_backup.unlink(missing_ok=True)
+
+        return destination
+
+    @classmethod
+    def _validate_database(cls, database_path: str | Path) -> None:
+        path = Path(database_path)
+        if not path.exists() or path.stat().st_size == 0:
+            raise BackupError("O banco de dados está vazio ou não existe.")
+
+        try:
+            with closing(
+                sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+            ) as connection:
+                quick_check = connection.execute("PRAGMA quick_check").fetchone()
+                if not quick_check or quick_check[0] != "ok":
+                    raise BackupError(
+                        "O banco selecionado não passou na verificação de integridade."
+                    )
+
+                tables = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ).fetchall()
+                }
+                missing_tables = set(cls.REQUIRED_DATABASE_COLUMNS) - tables
+                if missing_tables:
+                    raise BackupError(
+                        "O arquivo não possui a estrutura completa do SCOM."
+                    )
+
+                for table, required_columns in cls.REQUIRED_DATABASE_COLUMNS.items():
+                    columns = {
+                        row[1]
+                        for row in connection.execute(
+                            f"PRAGMA table_info({table})"
+                        ).fetchall()
+                    }
+                    if not required_columns.issubset(columns):
+                        raise BackupError(
+                            f"A tabela {table} não possui todos os campos necessários."
+                        )
+        except BackupError:
+            raise
+        except sqlite3.Error as error:
+            raise BackupError(
+                f"O arquivo selecionado não é um banco SCOM válido: {error}"
+            ) from error
+
+    @staticmethod
+    def _safe_extract_zip(source: Path, destination: Path) -> None:
+        with zipfile.ZipFile(source, mode="r") as archive:
+            for member in archive.infolist():
+                member_path = Path(member.filename)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise BackupError(
+                        "O arquivo ZIP contém caminhos de arquivo inválidos."
+                    )
+            archive.extractall(destination)
 
     @classmethod
     def _export_inventory_csv(
@@ -169,6 +467,7 @@ class BackupService:
                             THEN 'Estoque baixo'
                         ELSE 'Disponível'
                     END AS stock_status,
+                    COALESCE(p.image_path, '') AS image_path,
                     COALESCE(p.notes, '') AS notes,
                     p.created_at,
                     p.updated_at
@@ -202,6 +501,7 @@ class BackupService:
                         row["minimum_quantity"],
                         row["physical_location"],
                         row["stock_status"],
+                        row["image_path"] or "—",
                         row["notes"],
                         row["created_at"],
                         row["updated_at"],
