@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -20,6 +20,7 @@ from src.ui.dialogs.edit_part_dialog import EditPartDialog
 from src.ui.dialogs.movement_dialog import MovementDialog
 from src.ui.dialogs.part_details_dialog import PartDetailsDialog
 from src.ui.widgets.page_header import PageHeader, SectionHeader
+from src.ui.widgets.pagination_bar import PaginationBar
 from src.utils.paths import resource_path
 
 
@@ -29,6 +30,13 @@ class InventoryPage(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.status_filter = "all"
+        self.current_page = 1
+        self.page_size = 25
+
+        self.search_timer = QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(250)
+        self.search_timer.timeout.connect(self.refresh)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(30, 26, 30, 30)
@@ -51,13 +59,13 @@ class InventoryPage(QWidget):
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName("searchInput")
         self.search_edit.setPlaceholderText(
-            "Pesquisar por código, nome, descrição, categoria, modelo ou localização"
+            "Pesquisar por código, peça, categoria, valor, unidade, modelo ou localização"
         )
         self.search_edit.addAction(
             QIcon(str(resource_path("icons", "search.svg"))),
             QLineEdit.ActionPosition.LeadingPosition,
         )
-        self.search_edit.textChanged.connect(self.refresh)
+        self.search_edit.textChanged.connect(self._schedule_search)
         filter_layout.addWidget(self.search_edit, 1)
 
         filter_label = QLabel("FILTRAR POR")
@@ -81,7 +89,9 @@ class InventoryPage(QWidget):
             if value == "all":
                 button.setChecked(True)
             button.clicked.connect(
-                lambda checked=False, filter_value=value: self.set_filter(filter_value)
+                lambda checked=False, filter_value=value: self.set_filter(
+                    filter_value
+                )
             )
             self.filter_group.addButton(button)
             filter_layout.addWidget(button)
@@ -168,6 +178,10 @@ class InventoryPage(QWidget):
         self.results_stack.addWidget(self.empty_state)
         data_layout.addWidget(self.results_stack, 1)
 
+        self.pagination = PaginationBar(self.page_size)
+        self.pagination.page_changed.connect(self.change_page)
+        data_layout.addWidget(self.pagination)
+
         root.addWidget(data_panel, 1)
         self.refresh()
 
@@ -175,13 +189,32 @@ class InventoryPage(QWidget):
         self.search_edit.setFocus()
         self.search_edit.selectAll()
 
+    def _schedule_search(self) -> None:
+        self.current_page = 1
+        self.search_timer.start()
+
     def set_filter(self, value: str) -> None:
         self.status_filter = value
+        self.current_page = 1
+        self.refresh()
+
+    def change_page(self, page: int) -> None:
+        self.current_page = page
         self.refresh()
 
     def refresh(self) -> None:
-        parts = PartRepository.search(self.search_edit.text(), self.status_filter)
-        self.result_label.setText(f"{len(parts)} RESULTADO(S)")
+        result = PartRepository.search_paginated(
+            self.search_edit.text(),
+            self.status_filter,
+            self.current_page,
+            self.page_size,
+        )
+        parts = result["items"]
+        total = int(result["total"])
+        self.current_page = int(result["page"])
+
+        self.result_label.setText(f"{total} RESULTADO(S)")
+        self.pagination.set_state(self.current_page, total)
 
         self.table.clearSpans()
         self.table.setRowCount(0)
@@ -222,10 +255,14 @@ class InventoryPage(QWidget):
                 if column in {4, 5, 7}:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if column == 7:
-                    item.setForeground(status_colors.get(value, QColor("#dce9f8")))
+                    item.setForeground(
+                        status_colors.get(value, QColor("#dce9f8"))
+                    )
                     icon_name = status_icons.get(value)
                     if icon_name:
-                        item.setIcon(QIcon(str(resource_path("icons", icon_name))))
+                        item.setIcon(
+                            QIcon(str(resource_path("icons", icon_name)))
+                        )
                 self.table.setItem(row_index, column, item)
 
             action_widget = QWidget()
@@ -234,22 +271,38 @@ class InventoryPage(QWidget):
             actions.setContentsMargins(5, 4, 5, 4)
             actions.setSpacing(5)
 
-            view_button = self._action_button("Ver", "view.svg", "tableActionButton")
-            edit_button = self._action_button("Editar", "edit.svg", "tableActionButton")
-            in_button = self._action_button("Entrada", "arrow-in.svg", "successButton")
-            out_button = self._action_button("Saída", "arrow-out.svg", "dangerButton")
+            view_button = self._action_button(
+                "Ver", "view.svg", "tableActionButton"
+            )
+            edit_button = self._action_button(
+                "Editar", "edit.svg", "tableActionButton"
+            )
+            in_button = self._action_button(
+                "Entrada", "arrow-in.svg", "successButton"
+            )
+            out_button = self._action_button(
+                "Saída", "arrow-out.svg", "dangerButton"
+            )
 
             view_button.clicked.connect(
-                lambda checked=False, part_id=int(part["id"]): self.open_details(part_id)
+                lambda checked=False, part_id=int(part["id"]): self.open_details(
+                    part_id
+                )
             )
             edit_button.clicked.connect(
-                lambda checked=False, part_id=int(part["id"]): self.open_edit(part_id)
+                lambda checked=False, part_id=int(part["id"]): self.open_edit(
+                    part_id
+                )
             )
             in_button.clicked.connect(
-                lambda checked=False, part_id=int(part["id"]): self.open_movement(part_id, "ENTRADA")
+                lambda checked=False, part_id=int(part["id"]): self.open_movement(
+                    part_id, "ENTRADA"
+                )
             )
             out_button.clicked.connect(
-                lambda checked=False, part_id=int(part["id"]): self.open_movement(part_id, "SAÍDA")
+                lambda checked=False, part_id=int(part["id"]): self.open_movement(
+                    part_id, "SAÍDA"
+                )
             )
 
             actions.addWidget(view_button)
@@ -260,7 +313,11 @@ class InventoryPage(QWidget):
             self.table.setRowHeight(row_index, 54)
 
     @staticmethod
-    def _action_button(text: str, icon_name: str, object_name: str) -> QPushButton:
+    def _action_button(
+        text: str,
+        icon_name: str,
+        object_name: str,
+    ) -> QPushButton:
         button = QPushButton(text)
         button.setObjectName(object_name)
         button.setIcon(QIcon(str(resource_path("icons", icon_name))))
