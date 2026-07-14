@@ -2,7 +2,8 @@ from typing import Any
 
 from src.database.connection import database_connection
 from src.models.part import PartInput
-from src.services.backup_service import BackupError, BackupService
+from src.services.backup_service import BackupError
+from src.services.movement_log_service import MovementLogService
 
 
 class PartRepository:
@@ -101,7 +102,7 @@ class PartRepository:
 
         if has_initial_movement:
             try:
-                BackupService.sync_movement_logs()
+                MovementLogService.sync()
             except BackupError:
                 pass
 
