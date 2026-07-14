@@ -93,7 +93,7 @@ QTableWidget#movementsTable {
     border-color: #3b87b0;
 }
 
-/* Área de proteção e exportação da visão geral */
+/* Área de proteção, importação e exportação */
 QFrame#backupActionsPanel {
     background: #0a1c2b;
     border: 1px solid #1c4561;
@@ -123,15 +123,40 @@ QFrame#backupActionsPanel:hover {
     font-size: 10px;
 }
 
+#backupSafetyChip {
+    background: #2a2416;
+    border: 1px solid #6d5a29;
+    border-radius: 8px;
+    color: #f2cd73;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 6px 9px;
+}
+
+QPushButton#backupImportButton,
 QPushButton#backupPrimaryButton,
 QPushButton#backupSecondaryButton {
-    min-height: 42px;
-    min-width: 215px;
+    min-height: 43px;
     border-radius: 9px;
-    padding: 0 16px;
+    padding: 0 14px;
     font-size: 11px;
     font-weight: 700;
     text-align: left;
+}
+
+QPushButton#backupImportButton {
+    background: #302817;
+    border: 1px solid #80672d;
+    color: #ffe5a6;
+}
+
+QPushButton#backupImportButton:hover {
+    background: #41351d;
+    border-color: #b18a38;
+}
+
+QPushButton#backupImportButton:pressed {
+    background: #261f13;
 }
 
 QPushButton#backupPrimaryButton {
@@ -162,6 +187,47 @@ QPushButton#backupSecondaryButton:hover {
 
 QPushButton#backupSecondaryButton:pressed {
     background: #0c2638;
+}
+
+/* Paginação */
+QWidget#paginationBar {
+    background: #0b1d2c;
+    border-top: 1px solid #173a54;
+}
+
+#paginationSummary {
+    color: #7597b0;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+QPushButton#paginationButton {
+    background: #10283b;
+    border: 1px solid #28506c;
+    border-radius: 7px;
+    color: #9ebbd0;
+    padding: 0;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QPushButton#paginationButton:hover {
+    background: #17415e;
+    border-color: #3b86af;
+    color: #edf8ff;
+}
+
+QPushButton#paginationButton:checked {
+    background: #147fbd;
+    border-color: #46b1e7;
+    color: #ffffff;
+}
+
+QPushButton#paginationButton:disabled {
+    background: #0a1925;
+    border-color: #183246;
+    color: #425e72;
 }
 
 /* Indicadores compactos de movimentação */
