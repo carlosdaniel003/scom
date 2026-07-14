@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from src.database.connection import database_connection
+from src.database.schema import initialize_database
 from src.services.backup_service import BackupError, BackupService
 from src.utils.paths import DATABASE_PATH, ensure_directories
 
@@ -58,6 +59,10 @@ class InventoryImportService:
                 shutil.copy2(imported_database, importing_path)
                 BackupService._validate_database(importing_path)
                 importing_path.replace(DATABASE_PATH)
+
+            # Cria índices e componentes compatíveis com a versão atual sem
+            # remover ou sobrescrever os registros restaurados.
+            initialize_database()
 
             try:
                 for log_file in BackupService._log_files():
