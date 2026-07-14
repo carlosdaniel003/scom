@@ -1,7 +1,8 @@
 from typing import Any
 
 from src.database.connection import database_connection
-from src.services.backup_service import BackupError, BackupService
+from src.services.backup_service import BackupError
+from src.services.movement_log_service import MovementLogService
 
 
 class MovementRepository:
@@ -65,7 +66,7 @@ class MovementRepository:
             )
 
         try:
-            BackupService.sync_movement_logs()
+            MovementLogService.sync()
         except BackupError:
             pass
 
