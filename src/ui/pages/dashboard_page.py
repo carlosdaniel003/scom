@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 from src.repositories.movement_repository import MovementRepository
 from src.repositories.part_repository import PartRepository
 from src.services.backup_service import BackupError, BackupService
+from src.services.inventory_import_service import InventoryImportService
 from src.ui.widgets.stat_card import StatCard
 from src.utils.paths import resource_path
 
@@ -242,19 +243,25 @@ class DashboardPage(QWidget):
             return
 
         try:
-            result = BackupService.import_inventory(source)
+            result = InventoryImportService.import_inventory(source)
         except BackupError as error:
             QMessageBox.warning(self, "Importação não realizada", str(error))
             return
 
         self.inventory_imported.emit()
+        log_status = (
+            "Logs legíveis reconstruídos com sucesso."
+            if result["logs_rebuilt"]
+            else "O banco foi restaurado, mas os CSVs de log serão reconstruídos na próxima exportação."
+        )
         QMessageBox.information(
             self,
             "Inventário importado",
             "A restauração foi concluída com sucesso.\n\n"
             f"Peças carregadas: {result['parts']}\n"
             f"Movimentações carregadas: {result['movements']}\n"
-            f"Fotos restauradas: {result['photos']}\n\n"
+            f"Fotos restauradas: {result['photos']}\n"
+            f"{log_status}\n\n"
             "Backup de segurança do inventário anterior:\n"
             f"{result['safety_backup']}",
         )
