@@ -20,6 +20,7 @@ from src.repositories.movement_repository import MovementRepository
 from src.repositories.part_repository import PartRepository
 from src.services.backup_service import BackupError, BackupService
 from src.services.inventory_import_service import InventoryImportService
+from src.services.movement_log_service import MovementLogService
 from src.ui.widgets.stat_card import StatCard
 from src.utils.paths import resource_path
 
@@ -295,7 +296,7 @@ class DashboardPage(QWidget):
         )
 
     def export_movement_logs(self) -> None:
-        default_name = BackupService.default_logs_filename()
+        default_name = MovementLogService.default_filename()
         destination, _ = QFileDialog.getSaveFileName(
             self,
             "Salvar logs de movimentações",
@@ -310,7 +311,7 @@ class DashboardPage(QWidget):
             destination_path = destination_path.with_suffix(".zip")
 
         try:
-            saved_path = BackupService.export_movement_logs(destination_path)
+            saved_path = MovementLogService.export(destination_path)
         except BackupError as error:
             QMessageBox.warning(self, "Logs não exportados", str(error))
             return
