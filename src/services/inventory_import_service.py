@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from src.database.connection import database_connection
 from src.database.schema import initialize_database
 from src.services.backup_service import BackupError, BackupService
+from src.services.movement_log_service import MovementLogService
 from src.utils.paths import DATABASE_PATH, ensure_directories
 
 
@@ -65,9 +66,8 @@ class InventoryImportService:
             initialize_database()
 
             try:
-                for log_file in BackupService._log_files():
-                    log_file.unlink(missing_ok=True)
-                BackupService.sync_movement_logs()
+                MovementLogService.reset()
+                MovementLogService.sync()
             except (BackupError, OSError):
                 # O SQLite importado permanece como fonte completa do histórico.
                 # Os CSVs podem ser reconstruídos em uma exportação posterior.
